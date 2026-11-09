@@ -29,6 +29,8 @@ jobs:
             first=$(find "$tmp" -mindepth 1 -maxdepth 1 | head -n 1)
             # if the zip has a single top-level folder, use its contents
             if [ "$count" -eq 1 ] && [ -d "$first" ]; then src="$first"; else src="$tmp"; fi
+            # workflow files can't be pushed by the built-in token, so skip them
+            rm -rf "$src/.github"
             cp -a "$src"/. .
             rm -f "$z"
             rm -rf "$tmp"
