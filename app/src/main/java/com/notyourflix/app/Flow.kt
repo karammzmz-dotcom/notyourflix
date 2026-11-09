@@ -183,7 +183,7 @@ fun ProfilesScreen(vm: Vm) {
                                 if (pr.pin != null) { pinErr = null; pinFor = pr } else vm.enterProfile(pr)
                             })
                         if (pr.pin != null) {
-                            Text("🔒", Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color(0xCC000000), CircleShape).padding(6.dp), fontSize = 14.sp)
+                            Text("", Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color(0xCC000000), CircleShape).padding(6.dp), fontSize = 14.sp)
                         }
                     }
                     Spacer(Modifier.height(8.dp))

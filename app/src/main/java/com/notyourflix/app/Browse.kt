@@ -84,7 +84,7 @@ fun Section(title: String, content: @Composable () -> Unit) {
 fun HomeTab(vm: Vm) {
     if (vm.media.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("🎬", fontSize = 56.sp)
+            Text("", fontSize = 56.sp)
             Spacer(Modifier.height(12.dp))
             Text(tr("empty_title"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
@@ -214,18 +214,18 @@ fun SettingsTab(vm: Vm) {
     fun label(opts: List<Pair<String, String>>, k: String) = opts.firstOrNull { it.first == k }?.second
 
     val rows = listOf(
-        SRow("🔤", tr("change_font"), label(fontOpts, p.font)) { dlg = "font" },
-        SRow("👥", tr("change_profile"), null) { vm.screen = Screen.Profiles },
-        SRow("🖼️", tr("change_image"), null) { dlg = "image" },
-        SRow("✏️", tr("change_name"), me.name) { dlg = "name" },
-        SRow("🌐", tr("change_lang"), if (p.lang == "ar") "العربية" else "English") { dlg = "lang" },
-        SRow("🎬", tr("upload_movie"), null) { vm.screen = Screen.Upload },
-        SRow("🔒", if (me.pin == null) tr("lock_add") else tr("lock_remove"), null) { pinErr = null; firstPin = null; dlg = if (me.pin == null) "lockAdd" else "lockRemove" },
-        SRow("➕", tr("new_profile"), null) { dlg = "new" },
-        SRow("🔊", tr("change_sound"), label(soundOpts, p.sound)) { dlg = "sound" },
-        SRow("✨", tr("change_intro"), label(introOpts, p.intro)) { dlg = "intro" },
-        SRow("🚪", tr("change_intro_profile"), label(introOpts, p.profileIntro)) { dlg = "pintro" },
-        SRow("🗑️", tr("delete_profile"), null) {
+        SRow("", tr("change_font"), label(fontOpts, p.font)) { dlg = "font" },
+        SRow("", tr("change_profile"), null) { vm.screen = Screen.Profiles },
+        SRow("", tr("change_image"), null) { dlg = "image" },
+        SRow("", tr("change_name"), me.name) { dlg = "name" },
+        SRow("", tr("change_lang"), if (p.lang == "ar") "العربية" else "English") { dlg = "lang" },
+        SRow("", tr("upload_movie"), null) { vm.screen = Screen.Upload },
+        SRow("", if (me.pin == null) tr("lock_add") else tr("lock_remove"), null) { pinErr = null; firstPin = null; dlg = if (me.pin == null) "lockAdd" else "lockRemove" },
+        SRow("", tr("new_profile"), null) { dlg = "new" },
+        SRow("", tr("change_sound"), label(soundOpts, p.sound)) { dlg = "sound" },
+        SRow("", tr("change_intro"), label(introOpts, p.intro)) { dlg = "intro" },
+        SRow("", tr("change_intro_profile"), label(introOpts, p.profileIntro)) { dlg = "pintro" },
+        SRow("", tr("delete_profile"), null) {
             if (vm.profiles.size <= 1) Toast.makeText(ctx, Strings.get(p.lang, "last_profile"), Toast.LENGTH_SHORT).show() else dlg = "delete"
         }
     )
