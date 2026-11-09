@@ -84,8 +84,6 @@ fun Section(title: String, content: @Composable () -> Unit) {
 fun HomeTab(vm: Vm) {
     if (vm.media.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("", fontSize = 56.sp)
-            Spacer(Modifier.height(12.dp))
             Text(tr("empty_title"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Text(tr("empty_sub"), color = Muted)
@@ -168,17 +166,17 @@ fun SearchResults(vm: Vm, res: List<MediaEntry>, modifier: Modifier) {
 @Composable
 fun OnScreenKeyboard(arabic: Boolean, q: String, onChange: (String) -> Unit) {
     val letters = if (arabic) "ابتثجحخدذرزسشصضطظعغفقكلمنهوي".map { it.toString() } else ('A'..'Z').map { it.toString() }
-    val keys = letters + listOf("␣", "⌫")
+    val keys = letters + listOf("SPACE", "DEL")
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         keys.chunked(4).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.forEach { k ->
                     Box(
                         Modifier.weight(1f).height(46.dp).focusScale(1.1f, RoundedCornerShape(8.dp)) {
-                            onChange(when (k) { "⌫" -> q.dropLast(1); "␣" -> "$q "; else -> q + k.lowercase() })
+                            onChange(when (k) { "DEL" -> q.dropLast(1); "SPACE" -> "$q "; else -> q + k.lowercase() })
                         }.background(CardC),
                         contentAlignment = Alignment.Center
-                    ) { Text(k, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                    ) { Text(when (k) { "SPACE" -> tr("space"); "DEL" -> tr("delete"); else -> k }, fontSize = if (k.length > 1) 13.sp else 18.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
                 }
                 repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
             }
@@ -186,7 +184,7 @@ fun OnScreenKeyboard(arabic: Boolean, q: String, onChange: (String) -> Unit) {
     }
 }
 
-class SRow(val emoji: String, val title: String, val value: String?, val action: () -> Unit)
+class SRow(val title: String, val value: String?, val action: () -> Unit)
 
 @Composable
 fun SettingsTab(vm: Vm) {
@@ -214,18 +212,18 @@ fun SettingsTab(vm: Vm) {
     fun label(opts: List<Pair<String, String>>, k: String) = opts.firstOrNull { it.first == k }?.second
 
     val rows = listOf(
-        SRow("", tr("change_font"), label(fontOpts, p.font)) { dlg = "font" },
-        SRow("", tr("change_profile"), null) { vm.screen = Screen.Profiles },
-        SRow("", tr("change_image"), null) { dlg = "image" },
-        SRow("", tr("change_name"), me.name) { dlg = "name" },
-        SRow("", tr("change_lang"), if (p.lang == "ar") "العربية" else "English") { dlg = "lang" },
-        SRow("", tr("upload_movie"), null) { vm.screen = Screen.Upload },
-        SRow("", if (me.pin == null) tr("lock_add") else tr("lock_remove"), null) { pinErr = null; firstPin = null; dlg = if (me.pin == null) "lockAdd" else "lockRemove" },
-        SRow("", tr("new_profile"), null) { dlg = "new" },
-        SRow("", tr("change_sound"), label(soundOpts, p.sound)) { dlg = "sound" },
-        SRow("", tr("change_intro"), label(introOpts, p.intro)) { dlg = "intro" },
-        SRow("", tr("change_intro_profile"), label(introOpts, p.profileIntro)) { dlg = "pintro" },
-        SRow("", tr("delete_profile"), null) {
+        SRow(tr("change_font"), label(fontOpts, p.font)) { dlg = "font" },
+        SRow(tr("change_profile"), null) { vm.screen = Screen.Profiles },
+        SRow(tr("change_image"), null) { dlg = "image" },
+        SRow(tr("change_name"), me.name) { dlg = "name" },
+        SRow(tr("change_lang"), if (p.lang == "ar") "العربية" else "English") { dlg = "lang" },
+        SRow(tr("upload_movie"), null) { vm.screen = Screen.Upload },
+        SRow(if (me.pin == null) tr("lock_add") else tr("lock_remove"), null) { pinErr = null; firstPin = null; dlg = if (me.pin == null) "lockAdd" else "lockRemove" },
+        SRow(tr("new_profile"), null) { dlg = "new" },
+        SRow(tr("change_sound"), label(soundOpts, p.sound)) { dlg = "sound" },
+        SRow(tr("change_intro"), label(introOpts, p.intro)) { dlg = "intro" },
+        SRow(tr("change_intro_profile"), label(introOpts, p.profileIntro)) { dlg = "pintro" },
+        SRow(tr("delete_profile"), null) {
             if (vm.profiles.size <= 1) Toast.makeText(ctx, Strings.get(p.lang, "last_profile"), Toast.LENGTH_SHORT).show() else dlg = "delete"
         }
     )
@@ -249,8 +247,6 @@ fun SettingsTab(vm: Vm) {
                     Modifier.fillMaxWidth().focusScale(1.03f, RoundedCornerShape(14.dp)) { r.action() }.background(CardC).padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(r.emoji, fontSize = 24.sp)
-                    Spacer(Modifier.width(14.dp))
                     Column {
                         Text(r.title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         if (r.value != null) Text(r.value, color = Muted, fontSize = 13.sp)
@@ -333,12 +329,12 @@ fun UploadScreen(vm: Vm) {
             Text(tr("cover_image"), color = Muted)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Btn(tr("upload_own_image")) { pickCover.launch(arrayOf("image/*")) }
-                if (cover != null) Text("✓ " + tr("selected"), color = Red, fontWeight = FontWeight.Bold)
+                if (cover != null) Text(tr("selected"), color = Red, fontWeight = FontWeight.Bold)
             }
             Text(tr("video_file"), color = Muted)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Btn(tr("upload")) { pickVideo.launch(arrayOf("video/*")) }
-                if (videos.isNotEmpty()) Text("✓ ${videos.size}", color = Red, fontWeight = FontWeight.Bold)
+                if (videos.isNotEmpty()) Text("${videos.size}", color = Red, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(10.dp))
             Btn(if (busy) tr("working") else tr("finish"), Modifier.fillMaxWidth(), primary = true) {

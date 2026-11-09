@@ -34,7 +34,7 @@ object Strings {
         "selected" to "Selected", "fill_form" to "Add a title and choose a video", "saved" to "Saved",
         "delete_confirm" to "Delete this title?", "delete_profile_confirm" to "Delete this profile?",
         "last_profile" to "You need at least one profile", "video_type" to "Video type",
-        "language" to "Language", "next_episode" to "Next episode", "working" to "Saving…"
+        "language" to "Language", "pause" to "Pause", "space" to "Space", "next_episode" to "Next episode", "working" to "Saving…"
     )
     private val ar = mapOf(
         "home" to "الرئيسية", "search" to "بحث", "settings" to "الإعدادات",
@@ -64,7 +64,7 @@ object Strings {
         "selected" to "تم الاختيار", "fill_form" to "أدخل العنوان واختر فيديو", "saved" to "تم الحفظ",
         "delete_confirm" to "حذف هذا العمل؟", "delete_profile_confirm" to "حذف هذا الملف الشخصي؟",
         "last_profile" to "يجب أن يبقى ملف شخصي واحد على الأقل", "video_type" to "نوع الفيديو",
-        "language" to "اللغة", "next_episode" to "الحلقة التالية", "working" to "جارٍ الحفظ…"
+        "language" to "اللغة", "pause" to "إيقاف مؤقت", "space" to "مسافة", "next_episode" to "الحلقة التالية", "working" to "جارٍ الحفظ…"
     )
     fun get(lang: String, k: String): String = (if (lang == "ar") ar else en)[k] ?: en[k] ?: k
 }

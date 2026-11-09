@@ -155,10 +155,10 @@ fun PlayerScreen(vm: Vm, id: String, restart: Boolean) {
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
-                        Btn("⏪ 10") { seekBy(-10_000) }
-                        Btn(if (playing) "⏸" else "▶", primary = true) { toggle() }
-                        Btn("10 ⏩") { seekBy(10_000) }
-                        if (m.videos.size > 1) Btn("⏭ " + tr("next_episode")) { if (exo.hasNextMediaItem()) exo.seekToNextMediaItem(); wake() }
+                        Btn("-10") { seekBy(-10_000) }
+                        Btn(if (playing) tr("pause") else tr("play"), primary = true) { toggle() }
+                        Btn("+10") { seekBy(10_000) }
+                        if (m.videos.size > 1) Btn(tr("next_episode")) { if (exo.hasNextMediaItem()) exo.seekToNextMediaItem(); wake() }
                     }
                 }
             }

@@ -182,7 +182,7 @@ fun OptionRow(label: String, selected: Boolean, modifier: Modifier = Modifier, o
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, fontSize = 16.sp, modifier = Modifier.weight(1f))
-        if (selected) Text("✓", color = Red, fontWeight = FontWeight.Black)
+        if (selected) Text("●", color = Red, fontWeight = FontWeight.Black)
     }
 }
 
@@ -216,7 +216,7 @@ fun ColorRow(selected: Int, onPick: (Int) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(vertical = 6.dp)) {
         avatarColors.forEachIndexed { i, c ->
             Box(Modifier.size(38.dp).focusScale(1.15f, CircleShape) { onPick(i) }.background(c)) {
-                if (i == selected) Text("✓", Modifier.align(Alignment.Center), fontWeight = FontWeight.Black)
+                if (i == selected) Text("●", Modifier.align(Alignment.Center), fontWeight = FontWeight.Black)
             }
         }
     }
@@ -246,7 +246,17 @@ fun ProfileDialog(title: String, initialName: String, initialColor: Int, withCol
 @Composable
 fun PadKey(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(modifier.size(64.dp).focusScale(1.12f, CircleShape, onClick = onClick).background(Color(0x22FFFFFF)), contentAlignment = Alignment.Center) {
-        Text(label, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(label, fontSize = if (label.length > 1) 16.sp else 24.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun LockBadge(modifier: Modifier = Modifier) {
+    Canvas(modifier.size(26.dp).background(Color(0xCC000000), CircleShape)) {
+        val w = size.width
+        val h = size.height
+        drawArc(Color.White, 180f, 180f, false, Offset(w * 0.34f, h * 0.2f), Size(w * 0.32f, h * 0.4f), style = Stroke(w * 0.07f))
+        drawRoundRect(Color.White, Offset(w * 0.28f, h * 0.44f), Size(w * 0.44f, h * 0.3f), CornerRadius(w * 0.05f))
     }
 }
 
@@ -261,13 +271,13 @@ fun PinDialog(title: String, error: String?, onComplete: (String) -> Unit, onDis
             }
             Text(error ?: " ", color = Red, fontSize = 14.sp)
             Spacer(Modifier.height(6.dp))
-            listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("⌫", "0", "✕")).forEach { row ->
+            listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("Del", "0", "X")).forEach { row ->
                 Row(Modifier.padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     row.forEach { k ->
                         PadKey(k, if (k == "5") Modifier.autoFocus() else Modifier) {
                             when (k) {
-                                "⌫" -> pin = pin.dropLast(1)
-                                "✕" -> onDismiss()
+                                "Del" -> pin = pin.dropLast(1)
+                                "X" -> onDismiss()
                                 else -> if (pin.length < 4) {
                                     pin += k
                                     if (pin.length == 4) { val p = pin; pin = ""; onComplete(p) }
