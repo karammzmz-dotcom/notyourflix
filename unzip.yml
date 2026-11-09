@@ -1,0 +1,51 @@
+name: Unzip project
+
+on:
+  push:
+    paths:
+      - '*.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip uploaded zip(s) into the repo root
+        run: |
+          shopt -s nullglob
+          zips=(*.zip)
+          if [ ${#zips[@]} -eq 0 ]; then echo "No zip found in repo root"; exit 0; fi
+          for z in "${zips[@]}"; do
+            tmp=$(mktemp -d)
+            unzip -q -o "$z" -d "$tmp"
+            rm -rf "$tmp/__MACOSX"
+            count=$(find "$tmp" -mindepth 1 -maxdepth 1 | wc -l)
+            first=$(find "$tmp" -mindepth 1 -maxdepth 1 | head -n 1)
+            # if the zip has a single top-level folder, use its contents
+            if [ "$count" -eq 1 ] && [ -d "$first" ]; then src="$first"; else src="$tmp"; fi
+            cp -a "$src"/. .
+            rm -f "$z"
+            rm -rf "$tmp"
+          done
+
+      - name: Commit extracted files
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "Nothing to commit"; exit 0; fi
+          git commit -m "Unzip project"
+          git push
+
+      - name: Start the APK build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 5
+          gh workflow run build.yml || echo "build.yml not found or not ready yet - run it manually from the Actions tab"
