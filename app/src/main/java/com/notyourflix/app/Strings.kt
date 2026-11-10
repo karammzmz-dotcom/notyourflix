@@ -34,7 +34,14 @@ object Strings {
         "selected" to "Selected", "fill_form" to "Add a title and choose a video", "saved" to "Saved",
         "delete_confirm" to "Delete this title?", "delete_profile_confirm" to "Delete this profile?",
         "last_profile" to "You need at least one profile", "video_type" to "Video type",
-        "language" to "Language", "pause" to "Pause", "space" to "Space", "next_episode" to "Next episode", "working" to "Saving…"
+        "language" to "Language", "pause" to "Pause", "space" to "Space", "add_episodes" to "Add episodes", "kids" to "Kids", "kids_mode" to "Kids mode", "kids_profile" to "Kids profile",
+        "on" to "On", "age_filter" to "Age filter", "no_limit" to "No limit", "locked_kids" to "Locked by kids mode",
+        "manage_groups" to "Manage groups", "new_group" to "New group", "group_name" to "Group name",
+        "add_to_group" to "Add to group", "genres" to "Genres", "add_genre" to "Add a genre", "age_rating" to "Age rating",
+        "groups" to "Groups", "done" to "Done", "no_groups" to "No groups yet",
+        "g_action" to "Action", "g_comedy" to "Comedy", "g_drama" to "Drama", "g_horror" to "Horror", "g_sci-fi" to "Sci-Fi",
+        "g_romance" to "Romance", "g_documentary" to "Documentary", "g_animation" to "Animation", "g_family" to "Family",
+        "g_thriller" to "Thriller", "g_fantasy" to "Fantasy", "g_adventure" to "Adventure", "my_font" to "Uploaded font", "bad_font" to "Couldn't load that font file", "next_episode" to "Next episode", "working" to "Saving…"
     )
     private val ar = mapOf(
         "home" to "الرئيسية", "search" to "بحث", "settings" to "الإعدادات",
@@ -64,7 +71,14 @@ object Strings {
         "selected" to "تم الاختيار", "fill_form" to "أدخل العنوان واختر فيديو", "saved" to "تم الحفظ",
         "delete_confirm" to "حذف هذا العمل؟", "delete_profile_confirm" to "حذف هذا الملف الشخصي؟",
         "last_profile" to "يجب أن يبقى ملف شخصي واحد على الأقل", "video_type" to "نوع الفيديو",
-        "language" to "اللغة", "pause" to "إيقاف مؤقت", "space" to "مسافة", "next_episode" to "الحلقة التالية", "working" to "جارٍ الحفظ…"
+        "language" to "اللغة", "pause" to "إيقاف مؤقت", "space" to "مسافة", "add_episodes" to "إضافة حلقات", "kids" to "أطفال", "kids_mode" to "وضع الأطفال", "kids_profile" to "ملف للأطفال",
+        "on" to "تشغيل", "age_filter" to "فلتر العمر", "no_limit" to "بدون حد", "locked_kids" to "مقفل بسبب وضع الأطفال",
+        "manage_groups" to "إدارة المجموعات", "new_group" to "مجموعة جديدة", "group_name" to "اسم المجموعة",
+        "add_to_group" to "إضافة إلى مجموعة", "genres" to "الأنواع", "add_genre" to "إضافة نوع", "age_rating" to "التصنيف العمري",
+        "groups" to "المجموعات", "done" to "تم", "no_groups" to "لا توجد مجموعات بعد",
+        "g_action" to "أكشن", "g_comedy" to "كوميديا", "g_drama" to "دراما", "g_horror" to "رعب", "g_sci-fi" to "خيال علمي",
+        "g_romance" to "رومانسي", "g_documentary" to "وثائقي", "g_animation" to "رسوم متحركة", "g_family" to "عائلي",
+        "g_thriller" to "إثارة", "g_fantasy" to "فانتازيا", "g_adventure" to "مغامرة", "my_font" to "الخط المرفوع", "bad_font" to "تعذر تحميل ملف الخط", "next_episode" to "الحلقة التالية", "working" to "جارٍ الحفظ…"
     )
     fun get(lang: String, k: String): String = (if (lang == "ar") ar else en)[k] ?: en[k] ?: k
 }

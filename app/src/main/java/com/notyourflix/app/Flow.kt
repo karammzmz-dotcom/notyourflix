@@ -35,7 +35,7 @@ fun App(vm: Vm) {
         LocalLayoutDirection provides (if (p.lang == "ar") LayoutDirection.Rtl else LayoutDirection.Ltr),
         LocalClick provides click
     ) {
-        NyTheme(p.font) {
+        NyTheme(p.font, p.fontPath) {
             Surface(
                 Modifier.fillMaxSize().onPreviewKeyEvent { e ->
                     // Controller shoulder buttons switch tabs
@@ -188,6 +188,7 @@ fun ProfilesScreen(vm: Vm) {
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(pr.name, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    if (pr.kids) Text(tr("kids"), fontSize = 12.sp, color = Red, fontWeight = FontWeight.Bold)
                 }
             }
             item {
@@ -209,6 +210,6 @@ fun ProfilesScreen(vm: Vm) {
     }
     if (adding) {
         ProfileDialog(tr("new_profile"), "", vm.profiles.size % avatarColors.size, true,
-            onSave = { n, c -> vm.addProfile(n, c); adding = false }, onDismiss = { adding = false })
+            onSave = { n, c, k -> vm.addProfile(n, c, k); adding = false }, onDismiss = { adding = false })
     }
 }

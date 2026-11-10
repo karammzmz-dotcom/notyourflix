@@ -41,7 +41,8 @@ fun Context.findActivity(): Activity? {
     return null
 }
 
-fun fontFor(k: String): FontFamily = when (k) {
+fun fontFor(k: String, path: String? = null): FontFamily = when (k) {
+    "custom" -> path?.let { p -> File(p).takeIf { it.exists() }?.let { f -> runCatching { FontFamily(Font(f)) }.getOrNull() } } ?: FontFamily.Default
     "sans" -> FontFamily.SansSerif
     "serif" -> FontFamily.Serif
     "mono" -> FontFamily.Monospace
@@ -61,13 +62,13 @@ private fun Typography.withFont(f: FontFamily) = Typography(
 )
 
 @Composable
-fun NyTheme(font: String, content: @Composable () -> Unit) {
+fun NyTheme(font: String, fontPath: String?, content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Red, onPrimary = Color.White, background = Bg, surface = CardC,
             onSurface = Color.White, onBackground = Color.White, surfaceVariant = CardC
         ),
-        typography = Typography().withFont(fontFor(font)),
+        typography = Typography().withFont(remember(font, fontPath) { fontFor(font, fontPath) }),
         content = content
     )
 }
@@ -130,6 +131,8 @@ fun MediaCard(m: MediaEntry, modifier: Modifier, landscape: Boolean, progress: F
         } else {
             Text(m.title.take(1).uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Black, color = Muted, modifier = Modifier.align(Alignment.Center))
         }
+        Text(m.rating, Modifier.align(Alignment.TopStart).padding(6.dp).background(Color(0xAA000000), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+            fontSize = 10.sp, fontWeight = FontWeight.Bold)
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xDD000000))))
             .padding(start = 8.dp, end = 8.dp, top = 22.dp, bottom = if (progress != null) 10.dp else 8.dp)) {
@@ -223,8 +226,9 @@ fun ColorRow(selected: Int, onPick: (Int) -> Unit) {
 }
 
 @Composable
-fun ProfileDialog(title: String, initialName: String, initialColor: Int, withColor: Boolean, onSave: (String, Int) -> Unit, onDismiss: () -> Unit) {
+fun ProfileDialog(title: String, initialName: String, initialColor: Int, withColor: Boolean, onSave: (String, Int, Boolean) -> Unit, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(initialName) }
+    var kids by remember { mutableStateOf(false) }
     var color by remember { mutableIntStateOf(initialColor) }
     NyDialog(onDismiss) {
         Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -234,11 +238,13 @@ fun ProfileDialog(title: String, initialName: String, initialColor: Int, withCol
             Spacer(Modifier.height(10.dp))
             Text(tr("color"), color = Muted)
             ColorRow(color) { color = it }
+            Spacer(Modifier.height(8.dp))
+            Pill(tr("kids_profile"), kids) { kids = !kids }
         }
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Btn(tr("cancel")) { onDismiss() }
-            Btn(tr("save"), primary = true) { if (name.isNotBlank()) onSave(name.trim(), color) }
+            Btn(tr("save"), primary = true) { if (name.isNotBlank()) onSave(name.trim(), color, kids) }
         }
     }
 }
@@ -287,6 +293,53 @@ fun PinDialog(title: String, error: String?, onComplete: (String) -> Unit, onDis
                     }
                 }
             }
+        }
+    }
+}
+
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ChipFlow(content: @Composable () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+}
+
+fun genreText(lang: String, g: String): String {
+    val k = "g_" + g.lowercase()
+    val t = Strings.get(lang, k)
+    return if (t == k) g else t
+}
+
+@Composable
+fun genreLabel(g: String): String = genreText(LocalLang.current, g)
+
+@Composable
+fun TextDialog(title: String, initial: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var t by remember { mutableStateOf(initial) }
+    NyDialog(onDismiss) {
+        Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(t, { t = it.take(30) }, label = { Text(tr("group_name")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Btn(tr("cancel")) { onDismiss() }
+            Btn(tr("save"), primary = true) { if (t.isNotBlank()) onSave(t.trim()) }
+        }
+    }
+}
+
+@Composable
+fun GroupEditDialog(name: String, onSave: (String) -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    var t by remember { mutableStateOf(name) }
+    NyDialog(onDismiss) {
+        Text(tr("manage_groups"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(t, { t = it.take(30) }, label = { Text(tr("group_name")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Btn(tr("cancel")) { onDismiss() }
+            Btn(tr("delete")) { onDelete() }
+            Btn(tr("save"), primary = true) { if (t.isNotBlank()) onSave(t.trim()) }
         }
     }
 }

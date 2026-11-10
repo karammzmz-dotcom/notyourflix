@@ -82,17 +82,19 @@ fun Section(title: String, content: @Composable () -> Unit) {
 
 @Composable
 fun HomeTab(vm: Vm) {
-    if (vm.media.isEmpty()) {
+    val list = vm.visibleMedia
+    val isKids = vm.current?.kids == true
+    if (list.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(tr("empty_title"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Text(tr("empty_sub"), color = Muted)
             Spacer(Modifier.height(18.dp))
-            Btn(tr("upload_movie"), Modifier.autoFocus(), primary = true) { vm.screen = Screen.Upload }
+            if (!isKids) Btn(tr("upload_movie"), Modifier.autoFocus(), primary = true) { vm.screen = Screen.Upload }
         }
         return
     }
-    val cont = vm.media.mapNotNull { m -> vm.progress[m.id]?.takeIf { it.positionMs > 3000 }?.let { m to it } }
+    val cont = list.mapNotNull { m -> vm.progress[m.id]?.takeIf { it.positionMs > 3000 }?.let { m to it } }
         .sortedByDescending { it.second.updatedAt }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 600.dp
@@ -112,8 +114,20 @@ fun HomeTab(vm: Vm) {
             item {
                 Section(tr("for_you")) {
                     LazyRow(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        items(vm.media, key = { it.id }) { m ->
+                        items(list, key = { it.id }) { m ->
                             MediaCard(m, Modifier.width(pw), false, null) { vm.screen = Screen.Detail(m.id) }
+                        }
+                    }
+                }
+            }
+            vm.groups.forEach { g ->
+                val gm = g.ids.mapNotNull { id -> list.firstOrNull { it.id == id } }
+                if (gm.isNotEmpty()) item(key = "group_${g.id}") {
+                    Section(g.name) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            items(gm, key = { it.id }) { m ->
+                                MediaCard(m, Modifier.width(pw), false, null) { vm.screen = Screen.Detail(m.id) }
+                            }
                         }
                     }
                 }
@@ -125,7 +139,7 @@ fun HomeTab(vm: Vm) {
 @Composable
 fun SearchTab(vm: Vm) {
     var q by rememberSaveable { mutableStateOf("") }
-    val res = vm.media.filter { it.title.contains(q.trim(), ignoreCase = true) }
+    val res = vm.visibleMedia.filter { m -> m.title.contains(q.trim(), ignoreCase = true) || m.genres.any { it.contains(q.trim(), ignoreCase = true) } }
     val arabic = vm.prefs.lang == "ar"
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth >= 720.dp) {
@@ -193,9 +207,21 @@ fun SettingsTab(vm: Vm) {
     var dlg by remember { mutableStateOf("") }
     var pinErr by remember { mutableStateOf<String?>(null) }
     var firstPin by remember { mutableStateOf<String?>(null) }
+    var guard by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var editGroup by remember { mutableStateOf<String?>(null) }
     val p = vm.prefs
+    // Changes that loosen restrictions ask for the profile PIN first, if the profile has one.
+    fun guarded(action: () -> Unit) {
+        if (me.pin == null) action() else { guard = action; pinErr = null; dlg = "guard" }
+    }
+    fun adult(r: SRow): SRow? = if (me.kids) null else r
 
     val pickImg = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.setProfileImage(uri) }
+    val pickFont = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.setCustomFont(uri) { ok ->
+            Toast.makeText(ctx, Strings.get(vm.prefs.lang, if (ok) "saved" else "bad_font"), Toast.LENGTH_SHORT).show()
+        }
+    }
     val pickSound = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) { persist(ctx, uri); vm.updatePrefs { it.copy(sound = "custom", soundUri = uri.toString()) } }
     }
@@ -206,26 +232,33 @@ fun SettingsTab(vm: Vm) {
         if (uri != null) { persist(ctx, uri); vm.updatePrefs { it.copy(profileIntro = "custom", profileIntroUri = uri.toString()) } }
     }
 
-    val fontOpts = listOf("default" to tr("font_default"), "sans" to tr("font_sans"), "serif" to tr("font_serif"), "mono" to tr("font_mono"), "cursive" to tr("font_hand"))
+    val fontOpts = listOf("default" to tr("font_default"), "sans" to tr("font_sans"), "serif" to tr("font_serif"), "mono" to tr("font_mono"), "cursive" to tr("font_hand")) +
+        (if (p.fontPath != null) listOf("custom" to tr("my_font")) else emptyList()) +
+        listOf("upload" to tr("custom"))
     val soundOpts = listOf("off" to tr("off"), "soft" to tr("soft"), "retro" to tr("retro"), "chime" to tr("chime"), "custom" to tr("custom"))
     val introOpts = listOf("none" to tr("none"), "zoom" to tr("zoom"), "glow" to tr("glow"), "custom" to tr("custom"))
     fun label(opts: List<Pair<String, String>>, k: String) = opts.firstOrNull { it.first == k }?.second
 
-    val rows = listOf(
+    val rows = listOfNotNull(
         SRow(tr("change_font"), label(fontOpts, p.font)) { dlg = "font" },
         SRow(tr("change_profile"), null) { vm.screen = Screen.Profiles },
         SRow(tr("change_image"), null) { dlg = "image" },
         SRow(tr("change_name"), me.name) { dlg = "name" },
         SRow(tr("change_lang"), if (p.lang == "ar") "العربية" else "English") { dlg = "lang" },
-        SRow(tr("upload_movie"), null) { vm.screen = Screen.Upload },
+        adult(SRow(tr("upload_movie"), null) { vm.screen = Screen.Upload }),
+        adult(SRow(tr("manage_groups"), null) { dlg = "groups" }),
         SRow(if (me.pin == null) tr("lock_add") else tr("lock_remove"), null) { pinErr = null; firstPin = null; dlg = if (me.pin == null) "lockAdd" else "lockRemove" },
-        SRow(tr("new_profile"), null) { dlg = "new" },
+        SRow(tr("kids_mode"), if (me.kids) tr("on") else tr("off")) { if (me.kids) guarded { vm.setKids(false) } else vm.setKids(true) },
+        SRow(tr("age_filter"), if (me.kids) tr("locked_kids") else if (me.maxRating == "NC-17") tr("no_limit") else me.maxRating) {
+            if (me.kids) Toast.makeText(ctx, Strings.get(p.lang, "locked_kids"), Toast.LENGTH_SHORT).show() else dlg = "age"
+        },
+        adult(SRow(tr("new_profile"), null) { dlg = "new" }),
         SRow(tr("change_sound"), label(soundOpts, p.sound)) { dlg = "sound" },
         SRow(tr("change_intro"), label(introOpts, p.intro)) { dlg = "intro" },
         SRow(tr("change_intro_profile"), label(introOpts, p.profileIntro)) { dlg = "pintro" },
-        SRow(tr("delete_profile"), null) {
+        adult(SRow(tr("delete_profile"), null) {
             if (vm.profiles.size <= 1) Toast.makeText(ctx, Strings.get(p.lang, "last_profile"), Toast.LENGTH_SHORT).show() else dlg = "delete"
-        }
+        })
     )
 
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
@@ -257,7 +290,10 @@ fun SettingsTab(vm: Vm) {
     }
 
     when (dlg) {
-        "font" -> ChoiceDialog(tr("change_font"), fontOpts, p.font, { k -> vm.updatePrefs { it.copy(font = k) }; dlg = "" }) { dlg = "" }
+        "font" -> ChoiceDialog(tr("change_font"), fontOpts, p.font, { k ->
+            dlg = ""
+            if (k == "upload") pickFont.launch(arrayOf("*/*")) else vm.updatePrefs { it.copy(font = k) }
+        }) { dlg = "" }
         "lang" -> ChoiceDialog(tr("change_lang"), listOf("en" to "English", "ar" to "العربية"), p.lang, { k -> vm.updatePrefs { it.copy(lang = k) }; dlg = "" }) { dlg = "" }
         "sound" -> ChoiceDialog(tr("change_sound"), soundOpts, p.sound, { k ->
             dlg = ""
@@ -271,8 +307,8 @@ fun SettingsTab(vm: Vm) {
             dlg = ""
             if (k == "custom") pickPIntro.launch(arrayOf("video/*")) else vm.updatePrefs { it.copy(profileIntro = k) }
         }) { dlg = "" }
-        "name" -> ProfileDialog(tr("change_name"), me.name, me.colorIndex, false, { n, _ -> vm.updateProfile(me.copy(name = n)); dlg = "" }) { dlg = "" }
-        "new" -> ProfileDialog(tr("new_profile"), "", vm.profiles.size % avatarColors.size, true, { n, c -> vm.addProfile(n, c); dlg = "" }) { dlg = "" }
+        "name" -> ProfileDialog(tr("change_name"), me.name, me.colorIndex, false, { n, _, _ -> vm.updateProfile(me.copy(name = n)); dlg = "" }) { dlg = "" }
+        "new" -> ProfileDialog(tr("new_profile"), "", vm.profiles.size % avatarColors.size, true, { n, c, k -> vm.addProfile(n, c, k); dlg = "" }) { dlg = "" }
         "image" -> NyDialog({ dlg = "" }) {
             Text(tr("change_image"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
@@ -292,6 +328,31 @@ fun SettingsTab(vm: Vm) {
         "lockRemove" -> PinDialog(tr("enter_pin"), pinErr, { pin ->
             if (vm.checkPin(me, pin)) { vm.setPin(null); dlg = "" } else pinErr = Strings.get(p.lang, "wrong_pin")
         }) { dlg = "" }
+        "guard" -> PinDialog(tr("enter_pin"), pinErr, { pin ->
+            if (vm.checkPin(me, pin)) { val a = guard; guard = null; dlg = ""; a?.invoke() } else pinErr = Strings.get(p.lang, "wrong_pin")
+        }) { dlg = ""; guard = null }
+        "age" -> ChoiceDialog(tr("age_filter"), RATINGS.map { it to (if (it == "NC-17") tr("no_limit") else it) }, me.maxRating, { k ->
+            dlg = ""
+            guarded { vm.setMaxRating(k) }
+        }) { dlg = "" }
+        "groups" -> NyDialog({ dlg = "" }) {
+            Text(tr("manage_groups"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (vm.groups.isEmpty()) Text(tr("no_groups"), color = Muted)
+                vm.groups.forEachIndexed { i, g ->
+                    OptionRow("${g.name}  (${g.ids.size})", false, if (i == 0) Modifier.autoFocus() else Modifier) { editGroup = g.id; dlg = "groupEdit" }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Btn(tr("new_group"), Modifier.fillMaxWidth(), primary = true) { dlg = "groupNew" }
+        }
+        "groupNew" -> TextDialog(tr("new_group"), "", { n -> vm.addGroup(n); dlg = "groups" }) { dlg = "groups" }
+        "groupEdit" -> {
+            val g = vm.groups.firstOrNull { it.id == editGroup }
+            if (g == null) dlg = "groups"
+            else GroupEditDialog(g.name, { n -> vm.renameGroup(g.id, n); dlg = "groups" }, { vm.deleteGroup(g.id); dlg = "groups" }) { dlg = "groups" }
+        }
         "delete" -> ConfirmDialog(tr("delete_profile_confirm"), { dlg = ""; vm.deleteProfile(me.id) }) { dlg = "" }
     }
 }
@@ -305,6 +366,10 @@ fun UploadScreen(vm: Vm) {
     var cover by remember { mutableStateOf<Uri?>(null) }
     var videos by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
+    var genres by remember { mutableStateOf<List<String>>(emptyList()) }
+    var customGenre by remember { mutableStateOf("") }
+    var rating by remember { mutableStateOf("R") }
+    var groupIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val lang = vm.prefs.lang
 
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { cover = it }
@@ -336,6 +401,28 @@ fun UploadScreen(vm: Vm) {
                 Btn(tr("upload")) { pickVideo.launch(arrayOf("video/*")) }
                 if (videos.isNotEmpty()) Text("${videos.size}", color = Red, fontWeight = FontWeight.Bold)
             }
+            Text(tr("age_rating"), color = Muted)
+            ChipFlow { RATINGS.forEach { r -> Pill(r, rating == r) { rating = r } } }
+            Text(tr("genres"), color = Muted)
+            ChipFlow {
+                (PRESET_GENRES + genres.filter { it !in PRESET_GENRES }).forEach { g ->
+                    Pill(genreLabel(g), g in genres) { genres = if (g in genres) genres - g else genres + g }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(customGenre, { customGenre = it.take(20) }, label = { Text(tr("add_genre")) }, singleLine = true, modifier = Modifier.weight(1f))
+                Btn("+") {
+                    val g = customGenre.trim()
+                    if (g.isNotEmpty() && g !in genres) genres = genres + g
+                    customGenre = ""
+                }
+            }
+            if (vm.groups.isNotEmpty()) {
+                Text(tr("groups"), color = Muted)
+                ChipFlow {
+                    vm.groups.forEach { g -> Pill(g.name, g.id in groupIds) { groupIds = if (g.id in groupIds) groupIds - g.id else groupIds + g.id } }
+                }
+            }
             Spacer(Modifier.height(10.dp))
             Btn(if (busy) tr("working") else tr("finish"), Modifier.fillMaxWidth(), primary = true) {
                 if (busy) return@Btn
@@ -343,7 +430,7 @@ fun UploadScreen(vm: Vm) {
                     Toast.makeText(ctx, Strings.get(lang, "fill_form"), Toast.LENGTH_SHORT).show()
                 } else {
                     busy = true
-                    vm.addMedia(title.trim(), desc.trim(), type, cover, videos) {
+                    vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, videos) {
                         Toast.makeText(ctx, Strings.get(lang, "saved"), Toast.LENGTH_SHORT).show()
                         vm.tab = 0; vm.screen = Screen.Main
                     }
@@ -360,8 +447,14 @@ fun DetailScreen(vm: Vm, id: String) {
     val pr = vm.progress[m.id]
     val resumable = pr != null && pr.positionMs > 3000
     var confirm by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val pickMore = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { l ->
+        if (l.isNotEmpty()) { l.forEach { persist(ctx, it) }; vm.addEpisodes(m.id, l) }
+    }
     val cp = m.coverPath?.takeIf { File(it).exists() }
-    val meta = if (m.type == "movie") tr("movie") else "${tr("series")} · ${m.videos.size} ${tr("episodes")}"
+    val kids = vm.current?.kids == true
+    var groupDlg by remember { mutableStateOf(false) }
+    val meta = (if (m.type == "movie") tr("movie") else "${tr("series")} · ${m.videos.size} ${tr("episodes")}") + " · " + m.rating
 
     Box(Modifier.fillMaxSize()) {
         if (cp != null) AsyncImage(File(cp), null, Modifier.fillMaxSize().blur(24.dp).graphicsLayer { alpha = 0.3f }, contentScale = ContentScale.Crop)
@@ -371,12 +464,21 @@ fun DetailScreen(vm: Vm, id: String) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(m.title, fontSize = if (wide) 36.sp else 28.sp, fontWeight = FontWeight.Black)
                     Text(meta, color = Muted, fontWeight = FontWeight.Bold)
+                    if (m.genres.isNotEmpty()) Text(m.genres.joinToString(", ") { genreText(vm.prefs.lang, it) }, color = Muted)
                     if (m.description.isNotBlank()) Text(m.description, fontSize = 16.sp, color = Color(0xFFDDDDE4))
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Btn(if (resumable) tr("resume") else tr("play"), Modifier.autoFocus(), primary = true) { vm.screen = Screen.Player(m.id, false) }
                         if (resumable) Btn(tr("restart")) { vm.screen = Screen.Player(m.id, true) }
-                        Btn(tr("delete")) { confirm = true }
+                    }
+                    if (!kids) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Btn(tr("add_to_group")) { groupDlg = true }
+                            if (m.type == "series") Btn(tr("add_episodes")) { pickMore.launch(arrayOf("video/*")) }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Btn(tr("delete")) { confirm = true }
+                        }
                     }
                 }
             }
@@ -399,5 +501,31 @@ fun DetailScreen(vm: Vm, id: String) {
         }
         Btn("←", Modifier.align(Alignment.TopStart).padding(12.dp)) { vm.screen = Screen.Main }
     }
+    if (groupDlg) GroupPickDialog(vm, m.id) { groupDlg = false }
     if (confirm) ConfirmDialog(tr("delete_confirm"), { confirm = false; vm.deleteMedia(m.id); vm.screen = Screen.Main }) { confirm = false }
+}
+
+
+@Composable
+fun GroupPickDialog(vm: Vm, mediaId: String, onDismiss: () -> Unit) {
+    var creating by remember { mutableStateOf(false) }
+    if (creating) {
+        TextDialog(tr("new_group"), "", { n -> val id = vm.addGroup(n); vm.toggleInGroup(id, mediaId); creating = false }) { creating = false }
+        return
+    }
+    NyDialog(onDismiss) {
+        Text(tr("add_to_group"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (vm.groups.isEmpty()) Text(tr("no_groups"), color = Muted)
+            vm.groups.forEachIndexed { i, g ->
+                OptionRow(g.name, mediaId in g.ids, if (i == 0) Modifier.autoFocus() else Modifier) { vm.toggleInGroup(g.id, mediaId) }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Btn(tr("new_group")) { creating = true }
+            Btn(tr("done"), primary = true) { onDismiss() }
+        }
+    }
 }

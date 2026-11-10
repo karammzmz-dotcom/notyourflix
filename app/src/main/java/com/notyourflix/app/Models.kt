@@ -2,6 +2,7 @@ package com.notyourflix.app
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.Typeface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.compose.runtime.getValue
@@ -20,17 +21,30 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-data class Profile(val id: String, val name: String, val colorIndex: Int, val imagePath: String?, val pin: String?)
+data class Profile(
+    val id: String, val name: String, val colorIndex: Int, val imagePath: String?, val pin: String?,
+    val kids: Boolean = false, val maxRating: String = "NC-17"
+)
+data class MediaGroup(val id: String, val name: String, val ids: List<String>)
+
+val RATINGS = listOf("G", "PG", "PG-13", "R", "NC-17")
+val PRESET_GENRES = listOf("Action", "Comedy", "Drama", "Horror", "Sci-Fi", "Romance", "Documentary", "Animation", "Family", "Thriller", "Fantasy", "Adventure")
+fun ratingRank(r: String): Int = RATINGS.indexOf(r).let { if (it < 0) RATINGS.lastIndex else it }
+/** Highest rating rank this profile may watch. Kids mode caps it at PG-13. */
+fun Profile.maxRank(): Int = ratingRank(maxRating).let { if (kids) minOf(it, 2) else it }
+fun Profile.allows(m: MediaEntry): Boolean = ratingRank(m.rating) <= maxRank()
 data class MediaEntry(
     val id: String, val title: String, val description: String, val type: String,
-    val coverPath: String?, val videos: List<String>, val addedAt: Long
+    val coverPath: String?, val videos: List<String>, val addedAt: Long,
+    val genres: List<String> = emptyList(), val rating: String = "R"
 )
 data class Progress(val index: Int, val positionMs: Long, val durationMs: Long, val updatedAt: Long)
 data class Prefs(
     val lang: String = "en", val font: String = "default",
     val sound: String = "soft", val soundUri: String? = null,
     val intro: String = "zoom", val introUri: String? = null,
-    val profileIntro: String = "zoom", val profileIntroUri: String? = null
+    val profileIntro: String = "zoom", val profileIntroUri: String? = null,
+    val fontPath: String? = null
 )
 
 sealed interface Screen {
@@ -54,14 +68,15 @@ class Store(app: Application) {
         return (0 until a.length()).map {
             val o = a.getJSONObject(it)
             Profile(o.getString("id"), o.getString("name"), o.optInt("c"),
-                o.optString("img").ifEmpty { null }, o.optString("pin").ifEmpty { null })
+                o.optString("img").ifEmpty { null }, o.optString("pin").ifEmpty { null },
+                o.optBoolean("k"), o.optString("m", "NC-17"))
         }
     }
     fun saveProfiles(l: List<Profile>) {
         val a = JSONArray()
         l.forEach { p ->
             a.put(JSONObject().put("id", p.id).put("name", p.name).put("c", p.colorIndex)
-                .put("img", p.imagePath ?: "").put("pin", p.pin ?: ""))
+                .put("img", p.imagePath ?: "").put("pin", p.pin ?: "").put("k", p.kids).put("m", p.maxRating))
         }
         sp.edit().putString("profiles", a.toString()).apply()
     }
@@ -72,16 +87,32 @@ class Store(app: Application) {
             val o = a.getJSONObject(it)
             val v = o.getJSONArray("videos")
             MediaEntry(o.getString("id"), o.getString("title"), o.optString("desc"), o.optString("type", "movie"),
-                o.optString("cover").ifEmpty { null }, (0 until v.length()).map { i -> v.getString(i) }, o.optLong("added"))
+                o.optString("cover").ifEmpty { null }, (0 until v.length()).map { i -> v.getString(i) }, o.optLong("added"),
+                o.optJSONArray("genres")?.let { g -> (0 until g.length()).map { i -> g.getString(i) } } ?: emptyList(),
+                o.optString("rating", "R"))
         }
     }
     fun saveMedia(l: List<MediaEntry>) {
         val a = JSONArray()
         l.forEach { m ->
             a.put(JSONObject().put("id", m.id).put("title", m.title).put("desc", m.description).put("type", m.type)
-                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("added", m.addedAt))
+                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating))
         }
         sp.edit().putString("media", a.toString()).apply()
+    }
+
+    fun loadGroups(): List<MediaGroup> {
+        val a = JSONArray(sp.getString("groups", "[]"))
+        return (0 until a.length()).map {
+            val o = a.getJSONObject(it)
+            val ids = o.getJSONArray("ids")
+            MediaGroup(o.getString("id"), o.getString("name"), (0 until ids.length()).map { i -> ids.getString(i) })
+        }
+    }
+    fun saveGroups(l: List<MediaGroup>) {
+        val a = JSONArray()
+        l.forEach { g -> a.put(JSONObject().put("id", g.id).put("name", g.name).put("ids", JSONArray(g.ids))) }
+        sp.edit().putString("groups", a.toString()).apply()
     }
 
     fun loadProgress(pid: String): Map<String, Progress> {
@@ -107,12 +138,13 @@ class Store(app: Application) {
             o.optString("lang", d.lang), o.optString("font", d.font),
             o.optString("sound", d.sound), o.optString("soundUri").ifEmpty { null },
             o.optString("intro", d.intro), o.optString("introUri").ifEmpty { null },
-            o.optString("pintro", d.profileIntro), o.optString("pintroUri").ifEmpty { null }
+            o.optString("pintro", d.profileIntro), o.optString("pintroUri").ifEmpty { null },
+            o.optString("fontPath").ifEmpty { null }
         )
     }
     fun savePrefs(p: Prefs) {
         val o = JSONObject().put("lang", p.lang).put("font", p.font).put("sound", p.sound).put("soundUri", p.soundUri ?: "")
-            .put("intro", p.intro).put("introUri", p.introUri ?: "").put("pintro", p.profileIntro).put("pintroUri", p.profileIntroUri ?: "")
+            .put("intro", p.intro).put("introUri", p.introUri ?: "").put("pintro", p.profileIntro).put("pintroUri", p.profileIntroUri ?: "").put("fontPath", p.fontPath ?: "")
         sp.edit().putString("prefs", o.toString()).apply()
     }
 }
@@ -122,6 +154,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     val sfx = Sfx(app)
     val profiles = mutableStateListOf<Profile>()
     val media = mutableStateListOf<MediaEntry>()
+    val groups = mutableStateListOf<MediaGroup>()
     var prefs by mutableStateOf(store.loadPrefs())
     var currentId by mutableStateOf<String?>(null)
     var screen by mutableStateOf<Screen>(Screen.Intro)
@@ -129,6 +162,9 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     var progress by mutableStateOf<Map<String, Progress>>(emptyMap())
 
     val current: Profile? get() = profiles.firstOrNull { it.id == currentId }
+    /** Media this profile is allowed to see (age filter / kids mode applied). */
+    val visibleMedia: List<MediaEntry>
+        get() { val p = current; return if (p == null) media.toList() else media.filter { p.allows(it) } }
 
     init {
         profiles.addAll(store.loadProfiles())
@@ -137,6 +173,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
             store.saveProfiles(profiles.toList())
         }
         media.addAll(store.loadMedia())
+        groups.addAll(store.loadGroups())
     }
 
     fun updatePrefs(f: (Prefs) -> Prefs) { prefs = f(prefs); store.savePrefs(prefs) }
@@ -148,8 +185,8 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         screen = if (prefs.profileIntro == "none") Screen.Main else Screen.ProfileIntro(p.id)
     }
 
-    fun addProfile(name: String, color: Int) {
-        profiles.add(Profile(UUID.randomUUID().toString(), name, color, null, null))
+    fun addProfile(name: String, color: Int, kids: Boolean = false) {
+        profiles.add(Profile(UUID.randomUUID().toString(), name, color, null, null, kids))
         store.saveProfiles(profiles.toList())
     }
     fun updateProfile(p: Profile) {
@@ -162,6 +199,27 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         store.saveProfiles(profiles.toList()); store.removeProgress(id)
         currentId = null; screen = Screen.Profiles
     }
+    fun setKids(on: Boolean) { current?.let { updateProfile(it.copy(kids = on)) } }
+    fun setMaxRating(r: String) { current?.let { updateProfile(it.copy(maxRating = r)) } }
+
+    fun addGroup(name: String): String {
+        val g = MediaGroup(UUID.randomUUID().toString(), name, emptyList())
+        groups.add(g); store.saveGroups(groups.toList())
+        return g.id
+    }
+    fun renameGroup(id: String, name: String) {
+        val i = groups.indexOfFirst { it.id == id }
+        if (i >= 0) { groups[i] = groups[i].copy(name = name); store.saveGroups(groups.toList()) }
+    }
+    fun deleteGroup(id: String) { groups.removeAll { it.id == id }; store.saveGroups(groups.toList()) }
+    fun toggleInGroup(gid: String, mid: String) {
+        val i = groups.indexOfFirst { it.id == gid }
+        if (i < 0) return
+        val g = groups[i]
+        groups[i] = g.copy(ids = if (mid in g.ids) g.ids - mid else g.ids + mid)
+        store.saveGroups(groups.toList())
+    }
+
     fun setPin(pin: String?) { current?.let { updateProfile(it.copy(pin = pin?.let(::hashPin))) } }
     fun checkPin(p: Profile, pin: String) = p.pin == hashPin(pin)
 
@@ -180,19 +238,52 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         store.saveProgress(pid, progress)
     }
 
-    fun addMedia(title: String, desc: String, type: String, cover: Uri?, videos: List<Uri>, done: () -> Unit) {
+    fun addMedia(
+        title: String, desc: String, type: String, genres: List<String>, rating: String, groupIds: List<String>,
+        cover: Uri?, videos: List<Uri>, done: () -> Unit
+    ) {
         viewModelScope.launch {
             val path = withContext(Dispatchers.IO) { cover?.let { copyImage(it) } ?: frameCover(videos.first()) }
-            media.add(0, MediaEntry(UUID.randomUUID().toString(), title, desc, type, path, videos.map { it.toString() }, System.currentTimeMillis()))
+            val id = UUID.randomUUID().toString()
+            media.add(0, MediaEntry(id, title, desc, type, path, videos.map { it.toString() }, System.currentTimeMillis(), genres, rating))
             store.saveMedia(media.toList())
+            groupIds.forEach { toggleInGroup(it, id) }
             done()
         }
     }
+    fun addEpisodes(id: String, uris: List<Uri>) {
+        val i = media.indexOfFirst { it.id == id }
+        if (i < 0 || uris.isEmpty()) return
+        val m = media[i]
+        media[i] = m.copy(videos = m.videos + uris.map { it.toString() })
+        store.saveMedia(media.toList())
+    }
+
+    fun setCustomFont(uri: Uri, done: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val path = withContext(Dispatchers.IO) {
+                val f = File(app.filesDir, "font_${UUID.randomUUID()}.ttf")
+                try {
+                    app.contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                    if (Typeface.Builder(f).build() == null) { f.delete(); null } else f.absolutePath
+                } catch (e: Exception) { f.delete(); null }
+            }
+            if (path != null) {
+                val old = prefs.fontPath
+                updatePrefs { it.copy(font = "custom", fontPath = path) }
+                old?.let { runCatching { File(it).delete() } }
+            }
+            done(path != null)
+        }
+    }
+
     fun deleteMedia(id: String) {
         val m = media.firstOrNull { it.id == id } ?: return
         media.remove(m)
         m.coverPath?.let { runCatching { File(it).delete() } }
         store.saveMedia(media.toList())
+        groups.indices.toList().forEach { i -> if (id in groups[i].ids) groups[i] = groups[i].copy(ids = groups[i].ids - id) }
+        store.saveGroups(groups.toList())
     }
 
     private fun copyImage(uri: Uri): String? = runCatching {
