@@ -139,7 +139,12 @@ fun HomeTab(vm: Vm) {
 @Composable
 fun SearchTab(vm: Vm) {
     var q by rememberSaveable { mutableStateOf("") }
-    val res = vm.visibleMedia.filter { m -> m.title.contains(q.trim(), ignoreCase = true) || m.genres.any { it.contains(q.trim(), ignoreCase = true) } }
+    var fGenre by rememberSaveable { mutableStateOf("") }
+    var fRating by rememberSaveable { mutableStateOf("") }
+    val res = vm.visibleMedia.filter { m ->
+        (m.title.contains(q.trim(), ignoreCase = true) || m.genres.any { it.contains(q.trim(), ignoreCase = true) }) &&
+            (fGenre.isEmpty() || fGenre in m.genres) && (fRating.isEmpty() || m.rating == fRating)
+    }
     val arabic = vm.prefs.lang == "ar"
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth >= 720.dp) {
@@ -151,12 +156,15 @@ fun SearchTab(vm: Vm) {
                     Spacer(Modifier.height(12.dp))
                     OnScreenKeyboard(arabic, q) { q = it }
                 }
-                SearchResults(vm, res, Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    SearchFilters(vm, fGenre, fRating, { fGenre = it }, { fRating = it })
+                    SearchResults(vm, res, Modifier.weight(1f))
+                }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 OutlinedTextField(q, { q = it }, placeholder = { Text(tr("search_hint")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(12.dp))
+                SearchFilters(vm, fGenre, fRating, { fGenre = it }, { fRating = it })
                 SearchResults(vm, res, Modifier.weight(1f))
             }
         }
@@ -368,13 +376,17 @@ fun UploadScreen(vm: Vm) {
     var busy by remember { mutableStateOf(false) }
     var genres by remember { mutableStateOf<List<String>>(emptyList()) }
     var customGenre by remember { mutableStateOf("") }
+    var subs by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    val pickSubs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { l ->
+        if (l.isNotEmpty()) { l.forEach { persist(ctx, it) }; subs = l }
+    }
     var rating by remember { mutableStateOf("R") }
     var groupIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val lang = vm.prefs.lang
 
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { cover = it }
     val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { l ->
-        if (l.isNotEmpty()) { l.forEach { persist(ctx, it) }; videos = if (type == "movie") l.take(1) else l }
+        if (l.isNotEmpty()) { l.forEach { persist(ctx, it) }; videos = l }
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -386,7 +398,7 @@ fun UploadScreen(vm: Vm) {
             }
             Text(tr("video_type"), color = Muted)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Pill(tr("movie"), type == "movie") { type = "movie"; if (videos.size > 1) videos = videos.take(1) }
+                Pill(tr("movie"), type == "movie") { type = "movie" }
                 Pill(tr("series"), type == "series") { type = "series" }
             }
             OutlinedTextField(title, { title = it }, label = { Text(tr("title")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -400,6 +412,11 @@ fun UploadScreen(vm: Vm) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Btn(tr("upload")) { pickVideo.launch(arrayOf("video/*")) }
                 if (videos.isNotEmpty()) Text("${videos.size}", color = Red, fontWeight = FontWeight.Bold)
+            }
+            Text(tr("subtitle_files"), color = Muted)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Btn(tr("upload")) { pickSubs.launch(arrayOf("*/*")) }
+                if (subs.isNotEmpty()) Text("${subs.size}", color = Red, fontWeight = FontWeight.Bold)
             }
             Text(tr("age_rating"), color = Muted)
             ChipFlow { RATINGS.forEach { r -> Pill(r, rating == r) { rating = r } } }
@@ -430,7 +447,7 @@ fun UploadScreen(vm: Vm) {
                     Toast.makeText(ctx, Strings.get(lang, "fill_form"), Toast.LENGTH_SHORT).show()
                 } else {
                     busy = true
-                    vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, videos) {
+                    vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, videos, subs) {
                         Toast.makeText(ctx, Strings.get(lang, "saved"), Toast.LENGTH_SHORT).show()
                         vm.tab = 0; vm.screen = Screen.Main
                     }
@@ -472,11 +489,11 @@ fun DetailScreen(vm: Vm, id: String) {
                         if (resumable) Btn(tr("restart")) { vm.screen = Screen.Player(m.id, true) }
                     }
                     if (!kids) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ChipFlow {
+                            Btn(tr("edit")) { vm.screen = Screen.Edit(m.id) }
+                            Btn(tr("manage_episodes")) { vm.screen = Screen.Episodes(m.id) }
                             Btn(tr("add_to_group")) { groupDlg = true }
                             if (m.type == "series") Btn(tr("add_episodes")) { pickMore.launch(arrayOf("video/*")) }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Btn(tr("delete")) { confirm = true }
                         }
                     }
@@ -526,6 +543,28 @@ fun GroupPickDialog(vm: Vm, mediaId: String, onDismiss: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Btn(tr("new_group")) { creating = true }
             Btn(tr("done"), primary = true) { onDismiss() }
+        }
+    }
+}
+
+
+@Composable
+fun SearchFilters(vm: Vm, genre: String, rating: String, onGenre: (String) -> Unit, onRating: (String) -> Unit) {
+    val vis = vm.visibleMedia
+    val genres = vis.flatMap { it.genres }.distinct().sorted()
+    val ratings = RATINGS.filter { r -> vis.any { it.rating == r } }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (genres.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+                item { Pill(tr("filter_all"), genre.isEmpty()) { onGenre("") } }
+                items(genres) { g -> Pill(genreLabel(g), g == genre) { onGenre(if (g == genre) "" else g) } }
+            }
+        }
+        if (ratings.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+                item { Pill(tr("filter_all"), rating.isEmpty()) { onRating("") } }
+                items(ratings) { r -> Pill(r, r == rating) { onRating(if (r == rating) "" else r) } }
+            }
         }
     }
 }

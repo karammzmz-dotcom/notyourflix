@@ -1,5 +1,6 @@
 package com.notyourflix.app
 
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -12,6 +13,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { App(vm) }
+    }
+
+    // Pressing Home while a video plays shrinks it into a picture-in-picture window
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (vm.screen is Screen.Player) enterPip(this)
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        vm.inPip = isInPictureInPictureMode
     }
 
     // Game controllers: A = select (D-pad center), B = back

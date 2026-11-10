@@ -50,9 +50,11 @@ fun App(vm: Vm) {
                 color = Bg
             ) {
                 val s = vm.screen
-                BackHandler(enabled = s is Screen.Detail || s is Screen.Upload || s is Screen.Player || s is Screen.ProfileIntro || (s is Screen.Main && vm.tab != 0)) {
+                BackHandler(enabled = s is Screen.Detail || s is Screen.Episodes || s is Screen.Edit || s is Screen.Upload || s is Screen.Player || s is Screen.ProfileIntro || (s is Screen.Main && vm.tab != 0)) {
                     when (s) {
                         is Screen.Detail, is Screen.Upload -> vm.screen = Screen.Main
+                        is Screen.Episodes -> vm.screen = Screen.Detail(s.id)
+                        is Screen.Edit -> vm.screen = Screen.Detail(s.id)
                         is Screen.Player -> vm.screen = Screen.Detail(s.id)
                         is Screen.ProfileIntro -> vm.screen = Screen.Profiles
                         is Screen.Main -> vm.tab = 0
@@ -82,6 +84,8 @@ fun App(vm: Vm) {
                         }
                         is Screen.Main -> MainScreen(vm)
                         is Screen.Detail -> DetailScreen(vm, sc.id)
+                        is Screen.Episodes -> EpisodesScreen(vm, sc.id)
+                        is Screen.Edit -> EditScreen(vm, sc.id)
                         is Screen.Player -> PlayerScreen(vm, sc.id, sc.restart)
                         is Screen.Upload -> UploadScreen(vm)
                     }

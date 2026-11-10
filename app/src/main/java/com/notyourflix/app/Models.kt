@@ -33,11 +33,37 @@ fun ratingRank(r: String): Int = RATINGS.indexOf(r).let { if (it < 0) RATINGS.la
 /** Highest rating rank this profile may watch. Kids mode caps it at PG-13. */
 fun Profile.maxRank(): Int = ratingRank(maxRating).let { if (kids) minOf(it, 2) else it }
 fun Profile.allows(m: MediaEntry): Boolean = ratingRank(m.rating) <= maxRank()
+data class Sub(val uri: String, val lang: String, val label: String, val mime: String)
+data class Episode(
+    val uri: String, val title: String = "", val subs: List<Sub> = emptyList(),
+    val introStart: Long = -1, val introEnd: Long = -1
+)
 data class MediaEntry(
     val id: String, val title: String, val description: String, val type: String,
-    val coverPath: String?, val videos: List<String>, val addedAt: Long,
+    val coverPath: String?, val episodes: List<Episode>, val addedAt: Long,
     val genres: List<String> = emptyList(), val rating: String = "R"
-)
+) {
+    val videos: List<String> get() = episodes.map { it.uri }
+}
+
+fun episodesToJson(l: List<Episode>): JSONArray {
+    val a = JSONArray()
+    l.forEach { e ->
+        val subs = JSONArray()
+        e.subs.forEach { s -> subs.put(JSONObject().put("u", s.uri).put("l", s.lang).put("b", s.label).put("m", s.mime)) }
+        a.put(JSONObject().put("u", e.uri).put("t", e.title).put("s", subs).put("is", e.introStart).put("ie", e.introEnd))
+    }
+    return a
+}
+
+fun episodeFromJson(o: JSONObject): Episode {
+    val sa = o.optJSONArray("s")
+    val subs = if (sa == null) emptyList() else (0 until sa.length()).map { i ->
+        val s = sa.getJSONObject(i)
+        Sub(s.getString("u"), s.optString("l", "en"), s.optString("b"), s.optString("m", "application/x-subrip"))
+    }
+    return Episode(o.getString("u"), o.optString("t"), subs, o.optLong("is", -1), o.optLong("ie", -1))
+}
 data class Progress(val index: Int, val positionMs: Long, val durationMs: Long, val updatedAt: Long)
 data class Prefs(
     val lang: String = "en", val font: String = "default",
@@ -53,6 +79,8 @@ sealed interface Screen {
     data class ProfileIntro(val id: String) : Screen
     data object Main : Screen
     data class Detail(val id: String) : Screen
+    data class Episodes(val id: String) : Screen
+    data class Edit(val id: String) : Screen
     data class Player(val id: String, val restart: Boolean) : Screen
     data object Upload : Screen
 }
@@ -85,9 +113,11 @@ class Store(app: Application) {
         val a = JSONArray(sp.getString("media", "[]"))
         return (0 until a.length()).map {
             val o = a.getJSONObject(it)
-            val v = o.getJSONArray("videos")
+            val ea = o.optJSONArray("eps")
+            val eps = if (ea != null) (0 until ea.length()).map { i -> episodeFromJson(ea.getJSONObject(i)) }
+            else o.getJSONArray("videos").let { v -> (0 until v.length()).map { i -> Episode(v.getString(i)) } }
             MediaEntry(o.getString("id"), o.getString("title"), o.optString("desc"), o.optString("type", "movie"),
-                o.optString("cover").ifEmpty { null }, (0 until v.length()).map { i -> v.getString(i) }, o.optLong("added"),
+                o.optString("cover").ifEmpty { null }, eps, o.optLong("added"),
                 o.optJSONArray("genres")?.let { g -> (0 until g.length()).map { i -> g.getString(i) } } ?: emptyList(),
                 o.optString("rating", "R"))
         }
@@ -96,10 +126,13 @@ class Store(app: Application) {
         val a = JSONArray()
         l.forEach { m ->
             a.put(JSONObject().put("id", m.id).put("title", m.title).put("desc", m.description).put("type", m.type)
-                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating))
+                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("eps", episodesToJson(m.episodes)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating))
         }
         sp.edit().putString("media", a.toString()).apply()
     }
+
+    fun loadSubLang(pid: String): String = sp.getString("sublang_$pid", "off") ?: "off"
+    fun saveSubLang(pid: String, l: String) { sp.edit().putString("sublang_$pid", l).apply() }
 
     fun loadGroups(): List<MediaGroup> {
         val a = JSONArray(sp.getString("groups", "[]"))
@@ -159,6 +192,8 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     var currentId by mutableStateOf<String?>(null)
     var screen by mutableStateOf<Screen>(Screen.Intro)
     var tab by mutableIntStateOf(0)
+    var subLang by mutableStateOf("off")
+    var inPip by mutableStateOf(false)
     var progress by mutableStateOf<Map<String, Progress>>(emptyMap())
 
     val current: Profile? get() = profiles.firstOrNull { it.id == currentId }
@@ -181,6 +216,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     fun enterProfile(p: Profile) {
         currentId = p.id
         progress = store.loadProgress(p.id)
+        subLang = store.loadSubLang(p.id)
         tab = 0
         screen = if (prefs.profileIntro == "none") Screen.Main else Screen.ProfileIntro(p.id)
     }
@@ -199,6 +235,8 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         store.saveProfiles(profiles.toList()); store.removeProgress(id)
         currentId = null; screen = Screen.Profiles
     }
+    fun setSubLang(l: String) { subLang = l; currentId?.let { store.saveSubLang(it, l) } }
+
     fun setKids(on: Boolean) { current?.let { updateProfile(it.copy(kids = on)) } }
     fun setMaxRating(r: String) { current?.let { updateProfile(it.copy(maxRating = r)) } }
 
@@ -240,23 +278,57 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
 
     fun addMedia(
         title: String, desc: String, type: String, genres: List<String>, rating: String, groupIds: List<String>,
-        cover: Uri?, videos: List<Uri>, done: () -> Unit
+        cover: Uri?, videos: List<Uri>, subs: List<Uri>, done: () -> Unit
     ) {
         viewModelScope.launch {
-            val path = withContext(Dispatchers.IO) { cover?.let { copyImage(it) } ?: frameCover(videos.first()) }
+            val (path, eps) = withContext(Dispatchers.IO) {
+                val eps = buildEpisodes(app, videos, subs)
+                Pair(cover?.let { copyImage(it) } ?: frameCover(Uri.parse(eps.first().uri)), eps)
+            }
             val id = UUID.randomUUID().toString()
-            media.add(0, MediaEntry(id, title, desc, type, path, videos.map { it.toString() }, System.currentTimeMillis(), genres, rating))
+            media.add(0, MediaEntry(id, title, desc, type, path, eps, System.currentTimeMillis(), genres, rating))
             store.saveMedia(media.toList())
             groupIds.forEach { toggleInGroup(it, id) }
             done()
         }
     }
     fun addEpisodes(id: String, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val eps = withContext(Dispatchers.IO) { buildEpisodes(app, uris, emptyList()) }
+            val i = media.indexOfFirst { it.id == id }
+            if (i >= 0) {
+                media[i] = media[i].copy(episodes = media[i].episodes + eps)
+                store.saveMedia(media.toList())
+            }
+        }
+    }
+
+    fun setEpisodes(id: String, eps: List<Episode>) {
         val i = media.indexOfFirst { it.id == id }
-        if (i < 0 || uris.isEmpty()) return
-        val m = media[i]
-        media[i] = m.copy(videos = m.videos + uris.map { it.toString() })
+        if (i < 0 || eps.isEmpty()) return
+        media[i] = media[i].copy(episodes = eps)
         store.saveMedia(media.toList())
+    }
+
+    fun updateMedia(id: String, title: String, desc: String, type: String, genres: List<String>, rating: String) {
+        val i = media.indexOfFirst { it.id == id }
+        if (i < 0) return
+        media[i] = media[i].copy(title = title, description = desc, type = type, genres = genres, rating = rating)
+        store.saveMedia(media.toList())
+    }
+
+    fun setCover(id: String, uri: Uri) {
+        viewModelScope.launch {
+            val path = withContext(Dispatchers.IO) { copyImage(uri) } ?: return@launch
+            val i = media.indexOfFirst { it.id == id }
+            if (i >= 0) {
+                val old = media[i].coverPath
+                media[i] = media[i].copy(coverPath = path)
+                store.saveMedia(media.toList())
+                old?.let { runCatching { File(it).delete() } }
+            }
+        }
     }
 
     fun setCustomFont(uri: Uri, done: (Boolean) -> Unit) {
