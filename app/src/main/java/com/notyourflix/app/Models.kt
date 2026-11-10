@@ -235,7 +235,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         store.saveProfiles(profiles.toList()); store.removeProgress(id)
         currentId = null; screen = Screen.Profiles
     }
-    fun setSubLang(l: String) { subLang = l; currentId?.let { store.saveSubLang(it, l) } }
+    fun chooseSubLang(l: String) { subLang = l; currentId?.let { store.saveSubLang(it, l) } }
 
     fun setKids(on: Boolean) { current?.let { updateProfile(it.copy(kids = on)) } }
     fun setMaxRating(r: String) { current?.let { updateProfile(it.copy(maxRating = r)) } }

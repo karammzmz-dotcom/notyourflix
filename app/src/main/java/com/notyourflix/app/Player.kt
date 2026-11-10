@@ -255,9 +255,9 @@ fun PlayerScreen(vm: Vm, id: String, restart: Boolean) {
                 val subsNow = ep?.subs ?: emptyList()
                 if (subsNow.isEmpty()) Text(tr("no_subs"), color = Muted, fontSize = 13.sp)
                 ChipFlow {
-                    Pill(tr("off"), vm.subLang == "off") { vm.setSubLang("off"); applySub("off") }
+                    Pill(tr("off"), vm.subLang == "off") { vm.chooseSubLang("off"); applySub("off") }
                     subsNow.forEach { s ->
-                        Pill(s.label, vm.subLang == s.lang) { vm.setSubLang(s.lang); applySub(s.lang) }
+                        Pill(s.label, vm.subLang == s.lang) { vm.chooseSubLang(s.lang); applySub(s.lang) }
                     }
                 }
 
