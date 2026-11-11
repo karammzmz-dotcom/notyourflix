@@ -397,6 +397,8 @@ fun UploadScreen(vm: Vm) {
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { cover = it }
     var coverWide by remember { mutableStateOf<Uri?>(null) }
     val pickCoverWide = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { coverWide = it }
+    var logo by remember { mutableStateOf<Uri?>(null) }
+    val pickLogo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { logo = it }
     val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { l ->
         if (l.isNotEmpty()) { l.forEach { persist(ctx, it) }; videos = l }
     }
@@ -424,6 +426,11 @@ fun UploadScreen(vm: Vm) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Btn(tr("upload_own_image")) { pickCoverWide.launch(arrayOf("image/*")) }
                 if (coverWide != null) Text(tr("selected"), color = Red, fontWeight = FontWeight.Bold)
+            }
+            Text(tr("title_logo"), color = Muted)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Btn(tr("upload_own_image")) { pickLogo.launch(arrayOf("image/*")) }
+                if (logo != null) Text(tr("selected"), color = Red, fontWeight = FontWeight.Bold)
             }
             Text(tr("video_file"), color = Muted)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -464,7 +471,7 @@ fun UploadScreen(vm: Vm) {
                     Toast.makeText(ctx, Strings.get(lang, "fill_form"), Toast.LENGTH_SHORT).show()
                 } else {
                     busy = true
-                    vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, coverWide, videos, subs) {
+                    vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, coverWide, logo, videos, subs) {
                         Toast.makeText(ctx, Strings.get(lang, "saved"), Toast.LENGTH_SHORT).show()
                         vm.tab = TAB_HOME; vm.screen = Screen.Main
                     }
@@ -631,7 +638,16 @@ fun HeroBanner(vm: Vm, m: MediaEntry, compact: Boolean) {
             Modifier.align(Alignment.BottomStart).padding(start = 24.dp, end = 24.dp, bottom = 22.dp).widthIn(max = 560.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(m.title, fontSize = if (compact) 28.sp else 40.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val logo = m.logoPath?.takeIf { File(it).exists() }
+            if (logo != null) {
+                AsyncImage(
+                    File(logo), m.title,
+                    Modifier.height(if (compact) 80.dp else 120.dp).widthIn(max = if (compact) 280.dp else 420.dp),
+                    contentScale = ContentScale.Fit, alignment = Alignment.CenterStart
+                )
+            } else {
+                Text(m.title, fontSize = if (compact) 28.sp else 40.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
             Text(meta, color = Color(0xFFDDDDE4), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
             if (m.description.isNotBlank()) {
                 Text(m.description, color = Color(0xFFDDDDE4), fontSize = 15.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis)

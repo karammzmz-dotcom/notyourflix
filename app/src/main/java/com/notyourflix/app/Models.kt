@@ -42,7 +42,7 @@ data class MediaEntry(
     val id: String, val title: String, val description: String, val type: String,
     val coverPath: String?, val episodes: List<Episode>, val addedAt: Long,
     val genres: List<String> = emptyList(), val rating: String = "R",
-    val coverWidePath: String? = null
+    val coverWidePath: String? = null, val logoPath: String? = null
 ) {
     val videos: List<String> get() = episodes.map { it.uri }
 }
@@ -132,14 +132,14 @@ class Store(app: Application) {
             MediaEntry(o.getString("id"), o.getString("title"), o.optString("desc"), o.optString("type", "movie"),
                 o.optString("cover").ifEmpty { null }, eps, o.optLong("added"),
                 o.optJSONArray("genres")?.let { g -> (0 until g.length()).map { i -> g.getString(i) } } ?: emptyList(),
-                o.optString("rating", "R"), o.optString("coverw").ifEmpty { null })
+                o.optString("rating", "R"), o.optString("coverw").ifEmpty { null }, o.optString("logo").ifEmpty { null })
         }
     }
     fun saveMedia(l: List<MediaEntry>) {
         val a = JSONArray()
         l.forEach { m ->
             a.put(JSONObject().put("id", m.id).put("title", m.title).put("desc", m.description).put("type", m.type)
-                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("eps", episodesToJson(m.episodes)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating).put("coverw", m.coverWidePath ?: ""))
+                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("eps", episodesToJson(m.episodes)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating).put("coverw", m.coverWidePath ?: "").put("logo", m.logoPath ?: ""))
         }
         sp.edit().putString("media", a.toString()).apply()
     }
@@ -291,7 +291,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
 
     fun addMedia(
         title: String, desc: String, type: String, genres: List<String>, rating: String, groupIds: List<String>,
-        cover: Uri?, coverWide: Uri?, videos: List<Uri>, subs: List<Uri>, done: () -> Unit
+        cover: Uri?, coverWide: Uri?, logo: Uri?, videos: List<Uri>, subs: List<Uri>, done: () -> Unit
     ) {
         viewModelScope.launch {
             val (paths, eps) = withContext(Dispatchers.IO) {
@@ -299,10 +299,10 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
                 val vertical = cover?.let { copyImage(it) }
                 // no horizontal cover given: use a frame from the video as the backdrop
                 val wide = coverWide?.let { copyImage(it) } ?: frameCover(Uri.parse(eps.first().uri))
-                Pair(Pair(vertical, wide), eps)
+                Pair(Triple(vertical, wide, logo?.let { copyImage(it) }), eps)
             }
             val id = UUID.randomUUID().toString()
-            media.add(0, MediaEntry(id, title, desc, type, paths.first, eps, System.currentTimeMillis(), genres, rating, paths.second))
+            media.add(0, MediaEntry(id, title, desc, type, paths.first, eps, System.currentTimeMillis(), genres, rating, paths.second, paths.third))
             store.saveMedia(media.toList())
             groupIds.forEach { toggleInGroup(it, id) }
             done()
@@ -366,11 +366,26 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Title logo image, shown only on the Home banner. Pass null to remove it. */
+    fun setLogo(id: String, uri: Uri?) {
+        viewModelScope.launch {
+            val path = if (uri == null) null else (withContext(Dispatchers.IO) { copyImage(uri) } ?: return@launch)
+            val i = media.indexOfFirst { it.id == id }
+            if (i >= 0) {
+                val old = media[i].logoPath
+                media[i] = media[i].copy(logoPath = path)
+                store.saveMedia(media.toList())
+                old?.let { runCatching { File(it).delete() } }
+            }
+        }
+    }
+
     fun deleteMedia(id: String) {
         val m = media.firstOrNull { it.id == id } ?: return
         media.remove(m)
         m.coverPath?.let { runCatching { File(it).delete() } }
         m.coverWidePath?.let { runCatching { File(it).delete() } }
+        m.logoPath?.let { runCatching { File(it).delete() } }
         store.saveMedia(media.toList())
         groups.indices.toList().forEach { i -> if (id in groups[i].ids) groups[i] = groups[i].copy(ids = groups[i].ids - id) }
         store.saveGroups(groups.toList())

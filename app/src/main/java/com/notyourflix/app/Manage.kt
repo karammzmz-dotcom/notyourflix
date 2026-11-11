@@ -32,6 +32,7 @@ fun EditScreen(vm: Vm, id: String) {
     var customGenre by remember { mutableStateOf("") }
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) vm.setCover(m.id, u, false) }
     val pickCoverWide = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) vm.setCover(m.id, u, true) }
+    val pickLogo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) vm.setLogo(m.id, u) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -67,6 +68,11 @@ fun EditScreen(vm: Vm, id: String) {
             Btn(tr("change_cover")) { pickCover.launch(arrayOf("image/*")) }
             Text(tr("cover_horizontal"), color = Muted)
             Btn(tr("change_cover")) { pickCoverWide.launch(arrayOf("image/*")) }
+            Text(tr("title_logo"), color = Muted)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Btn(tr("change_cover")) { pickLogo.launch(arrayOf("image/*")) }
+                if (m.logoPath != null) Btn(tr("remove")) { vm.setLogo(m.id, null) }
+            }
             Spacer(Modifier.height(10.dp))
             Btn(tr("save"), Modifier.fillMaxWidth(), primary = true) {
                 if (title.isBlank()) Toast.makeText(ctx, Strings.get(vm.prefs.lang, "fill_form"), Toast.LENGTH_SHORT).show()
