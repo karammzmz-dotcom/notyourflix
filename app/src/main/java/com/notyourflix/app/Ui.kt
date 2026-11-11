@@ -147,14 +147,14 @@ fun MediaCard(m: MediaEntry, modifier: Modifier, landscape: Boolean, progress: F
 }
 
 @Composable
-fun Pill(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun Pill(text: String, selected: Boolean, modifier: Modifier = Modifier, small: Boolean = false, onClick: () -> Unit) {
     Box(
         modifier.focusScale(1.06f, CircleShape, onClick = onClick)
             .background(if (selected) Color.White else CardC)
-            .padding(horizontal = 18.dp, vertical = 9.dp),
+            .padding(horizontal = if (small) 12.dp else 18.dp, vertical = if (small) 8.dp else 9.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (selected) Color.Black else Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+        Text(text, color = if (selected) Color.Black else Color.White, fontWeight = FontWeight.Bold, fontSize = if (small) 14.sp else 15.sp, maxLines = 1)
     }
 }
 
@@ -340,6 +340,23 @@ fun GroupEditDialog(name: String, onSave: (String) -> Unit, onDelete: () -> Unit
             Btn(tr("cancel")) { onDismiss() }
             Btn(tr("delete")) { onDelete() }
             Btn(tr("save"), primary = true) { if (t.isNotBlank()) onSave(t.trim()) }
+        }
+    }
+}
+
+
+/** Magnifying-glass tab button, drawn in code. */
+@Composable
+fun SearchTabIcon(selected: Boolean, onClick: () -> Unit) {
+    val c = if (selected) Color.Black else Color.White
+    Box(
+        Modifier.size(40.dp).focusScale(1.08f, CircleShape, onClick = onClick).background(if (selected) Color.White else CardC),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.size(20.dp)) {
+            val w = size.width
+            drawCircle(c, radius = w * 0.32f, center = Offset(w * 0.42f, w * 0.42f), style = Stroke(w * 0.11f))
+            drawLine(c, Offset(w * 0.65f, w * 0.65f), Offset(w * 0.92f, w * 0.92f), strokeWidth = w * 0.13f, cap = StrokeCap.Round)
         }
     }
 }

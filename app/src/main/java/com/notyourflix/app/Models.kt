@@ -73,6 +73,13 @@ data class Prefs(
     val fontPath: String? = null
 )
 
+const val TAB_SEARCH = 0
+const val TAB_HOME = 1
+const val TAB_SHOWS = 2
+const val TAB_MOVIES = 3
+const val TAB_SETTINGS = 4
+const val TAB_COUNT = 5
+
 sealed interface Screen {
     data object Intro : Screen
     data object Profiles : Screen
@@ -191,7 +198,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     var prefs by mutableStateOf(store.loadPrefs())
     var currentId by mutableStateOf<String?>(null)
     var screen by mutableStateOf<Screen>(Screen.Intro)
-    var tab by mutableIntStateOf(0)
+    var tab by mutableIntStateOf(TAB_HOME)
     var subLang by mutableStateOf("off")
     var inPip by mutableStateOf(false)
     var progress by mutableStateOf<Map<String, Progress>>(emptyMap())
@@ -217,7 +224,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         currentId = p.id
         progress = store.loadProgress(p.id)
         subLang = store.loadSubLang(p.id)
-        tab = 0
+        tab = TAB_HOME
         screen = if (prefs.profileIntro == "none") Screen.Main else Screen.ProfileIntro(p.id)
     }
 

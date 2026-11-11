@@ -41,8 +41,10 @@ fun MainScreen(vm: Vm) {
             label = "tabs"
         ) { t ->
             when (t) {
-                0 -> HomeTab(vm)
-                1 -> SearchTab(vm)
+                TAB_SEARCH -> SearchTab(vm)
+                TAB_HOME -> HomeTab(vm)
+                TAB_SHOWS -> TypeTab(vm, "series")
+                TAB_MOVIES -> TypeTab(vm, "movie")
                 else -> SettingsTab(vm)
             }
         }
@@ -58,9 +60,16 @@ fun TopBar(tab: Int, onTab: (Int) -> Unit, profile: Profile, onProfile: () -> Un
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("NY", fontSize = if (compact) 26.sp else 34.sp, fontWeight = FontWeight.Black, color = Red)
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp, Alignment.CenterHorizontally)) {
-                listOf("home", "search", "settings").forEachIndexed { i, k ->
-                    Pill(tr(k), tab == i) { onTab(i) }
+            Box(Modifier.weight(1f).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SearchTabIcon(tab == TAB_SEARCH) { onTab(TAB_SEARCH) }
+                    listOf(TAB_HOME to "home", TAB_SHOWS to "shows", TAB_MOVIES to "movies", TAB_SETTINGS to "settings").forEach { (i, k) ->
+                        Pill(tr(k), tab == i, small = compact) { onTab(i) }
+                    }
                 }
             }
             if (!compact) {
@@ -157,14 +166,14 @@ fun SearchTab(vm: Vm) {
                     OnScreenKeyboard(arabic, q) { q = it }
                 }
                 Column(Modifier.weight(1f)) {
-                    SearchFilters(vm, fGenre, fRating, { fGenre = it }, { fRating = it })
+                    SearchFilters(vm.visibleMedia, fGenre, fRating, { fGenre = it }, { fRating = it })
                     SearchResults(vm, res, Modifier.weight(1f))
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 OutlinedTextField(q, { q = it }, placeholder = { Text(tr("search_hint")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                SearchFilters(vm, fGenre, fRating, { fGenre = it }, { fRating = it })
+                SearchFilters(vm.visibleMedia, fGenre, fRating, { fGenre = it }, { fRating = it })
                 SearchResults(vm, res, Modifier.weight(1f))
             }
         }
@@ -449,7 +458,7 @@ fun UploadScreen(vm: Vm) {
                     busy = true
                     vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, videos, subs) {
                         Toast.makeText(ctx, Strings.get(lang, "saved"), Toast.LENGTH_SHORT).show()
-                        vm.tab = 0; vm.screen = Screen.Main
+                        vm.tab = TAB_HOME; vm.screen = Screen.Main
                     }
                 }
             }
@@ -549,8 +558,8 @@ fun GroupPickDialog(vm: Vm, mediaId: String, onDismiss: () -> Unit) {
 
 
 @Composable
-fun SearchFilters(vm: Vm, genre: String, rating: String, onGenre: (String) -> Unit, onRating: (String) -> Unit) {
-    val vis = vm.visibleMedia
+fun SearchFilters(source: List<MediaEntry>, genre: String, rating: String, onGenre: (String) -> Unit, onRating: (String) -> Unit) {
+    val vis = source
     val genres = vis.flatMap { it.genres }.distinct().sorted()
     val ratings = RATINGS.filter { r -> vis.any { it.rating == r } }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -566,5 +575,27 @@ fun SearchFilters(vm: Vm, genre: String, rating: String, onGenre: (String) -> Un
                 items(ratings) { r -> Pill(r, r == rating) { onRating(if (r == rating) "" else r) } }
             }
         }
+    }
+}
+
+
+/** Shows (series) or Movies tab: a grid of every title of that type, with genre/rating filters. */
+@Composable
+fun TypeTab(vm: Vm, type: String) {
+    var fGenre by rememberSaveable(type) { mutableStateOf("") }
+    var fRating by rememberSaveable(type) { mutableStateOf("") }
+    val all = vm.visibleMedia.filter { it.type == type }
+    val list = all.filter { (fGenre.isEmpty() || fGenre in it.genres) && (fRating.isEmpty() || it.rating == fRating) }
+    if (all.isEmpty()) {
+        Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(tr("empty_title"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text(tr("empty_sub"), color = Muted)
+        }
+        return
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        SearchFilters(all, fGenre, fRating, { fGenre = it }, { fRating = it })
+        SearchResults(vm, list, Modifier.weight(1f))
     }
 }

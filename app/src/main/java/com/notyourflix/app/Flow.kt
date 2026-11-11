@@ -41,8 +41,8 @@ fun App(vm: Vm) {
                     // Controller shoulder buttons switch tabs
                     if (e.type == KeyEventType.KeyDown && vm.screen is Screen.Main) {
                         when (e.key) {
-                            Key.ButtonL1 -> { vm.tab = (vm.tab + 2) % 3; true }
-                            Key.ButtonR1 -> { vm.tab = (vm.tab + 1) % 3; true }
+                            Key.ButtonL1 -> { vm.tab = (vm.tab + TAB_COUNT - 1) % TAB_COUNT; true }
+                            Key.ButtonR1 -> { vm.tab = (vm.tab + 1) % TAB_COUNT; true }
                             else -> false
                         }
                     } else false
@@ -50,14 +50,14 @@ fun App(vm: Vm) {
                 color = Bg
             ) {
                 val s = vm.screen
-                BackHandler(enabled = s is Screen.Detail || s is Screen.Episodes || s is Screen.Edit || s is Screen.Upload || s is Screen.Player || s is Screen.ProfileIntro || (s is Screen.Main && vm.tab != 0)) {
+                BackHandler(enabled = s is Screen.Detail || s is Screen.Episodes || s is Screen.Edit || s is Screen.Upload || s is Screen.Player || s is Screen.ProfileIntro || (s is Screen.Main && vm.tab != TAB_HOME)) {
                     when (s) {
                         is Screen.Detail, is Screen.Upload -> vm.screen = Screen.Main
                         is Screen.Episodes -> vm.screen = Screen.Detail(s.id)
                         is Screen.Edit -> vm.screen = Screen.Detail(s.id)
                         is Screen.Player -> vm.screen = Screen.Detail(s.id)
                         is Screen.ProfileIntro -> vm.screen = Screen.Profiles
-                        is Screen.Main -> vm.tab = 0
+                        is Screen.Main -> vm.tab = TAB_HOME
                         else -> {}
                     }
                 }
