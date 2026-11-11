@@ -125,8 +125,8 @@ fun MediaCard(m: MediaEntry, modifier: Modifier, landscape: Boolean, progress: F
         modifier.aspectRatio(if (landscape) 16f / 9f else 2f / 3f)
             .focusScale(onClick = onClick).background(CardC)
     ) {
-        val cp = m.coverPath
-        if (cp != null && File(cp).exists()) {
+        val cp = if (landscape) m.backdrop() else m.poster()
+        if (cp != null) {
             AsyncImage(model = File(cp), contentDescription = m.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
             Text(m.title.take(1).uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Black, color = Muted, modifier = Modifier.align(Alignment.Center))

@@ -41,10 +41,16 @@ data class Episode(
 data class MediaEntry(
     val id: String, val title: String, val description: String, val type: String,
     val coverPath: String?, val episodes: List<Episode>, val addedAt: Long,
-    val genres: List<String> = emptyList(), val rating: String = "R"
+    val genres: List<String> = emptyList(), val rating: String = "R",
+    val coverWidePath: String? = null
 ) {
     val videos: List<String> get() = episodes.map { it.uri }
 }
+
+/** Vertical (poster) cover, falling back to the horizontal one. */
+fun MediaEntry.poster(): String? = listOfNotNull(coverPath, coverWidePath).firstOrNull { File(it).exists() }
+/** Horizontal (backdrop) cover, falling back to the vertical one. */
+fun MediaEntry.backdrop(): String? = listOfNotNull(coverWidePath, coverPath).firstOrNull { File(it).exists() }
 
 fun episodesToJson(l: List<Episode>): JSONArray {
     val a = JSONArray()
@@ -126,14 +132,14 @@ class Store(app: Application) {
             MediaEntry(o.getString("id"), o.getString("title"), o.optString("desc"), o.optString("type", "movie"),
                 o.optString("cover").ifEmpty { null }, eps, o.optLong("added"),
                 o.optJSONArray("genres")?.let { g -> (0 until g.length()).map { i -> g.getString(i) } } ?: emptyList(),
-                o.optString("rating", "R"))
+                o.optString("rating", "R"), o.optString("coverw").ifEmpty { null })
         }
     }
     fun saveMedia(l: List<MediaEntry>) {
         val a = JSONArray()
         l.forEach { m ->
             a.put(JSONObject().put("id", m.id).put("title", m.title).put("desc", m.description).put("type", m.type)
-                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("eps", episodesToJson(m.episodes)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating))
+                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("eps", episodesToJson(m.episodes)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating).put("coverw", m.coverWidePath ?: ""))
         }
         sp.edit().putString("media", a.toString()).apply()
     }
@@ -285,15 +291,18 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
 
     fun addMedia(
         title: String, desc: String, type: String, genres: List<String>, rating: String, groupIds: List<String>,
-        cover: Uri?, videos: List<Uri>, subs: List<Uri>, done: () -> Unit
+        cover: Uri?, coverWide: Uri?, videos: List<Uri>, subs: List<Uri>, done: () -> Unit
     ) {
         viewModelScope.launch {
-            val (path, eps) = withContext(Dispatchers.IO) {
+            val (paths, eps) = withContext(Dispatchers.IO) {
                 val eps = buildEpisodes(app, videos, subs)
-                Pair(cover?.let { copyImage(it) } ?: frameCover(Uri.parse(eps.first().uri)), eps)
+                val vertical = cover?.let { copyImage(it) }
+                // no horizontal cover given: use a frame from the video as the backdrop
+                val wide = coverWide?.let { copyImage(it) } ?: frameCover(Uri.parse(eps.first().uri))
+                Pair(Pair(vertical, wide), eps)
             }
             val id = UUID.randomUUID().toString()
-            media.add(0, MediaEntry(id, title, desc, type, path, eps, System.currentTimeMillis(), genres, rating))
+            media.add(0, MediaEntry(id, title, desc, type, paths.first, eps, System.currentTimeMillis(), genres, rating, paths.second))
             store.saveMedia(media.toList())
             groupIds.forEach { toggleInGroup(it, id) }
             done()
@@ -325,13 +334,14 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         store.saveMedia(media.toList())
     }
 
-    fun setCover(id: String, uri: Uri) {
+    fun setCover(id: String, uri: Uri, wide: Boolean = false) {
         viewModelScope.launch {
             val path = withContext(Dispatchers.IO) { copyImage(uri) } ?: return@launch
             val i = media.indexOfFirst { it.id == id }
             if (i >= 0) {
-                val old = media[i].coverPath
-                media[i] = media[i].copy(coverPath = path)
+                val cur = media[i]
+                val old = if (wide) cur.coverWidePath else cur.coverPath
+                media[i] = if (wide) cur.copy(coverWidePath = path) else cur.copy(coverPath = path)
                 store.saveMedia(media.toList())
                 old?.let { runCatching { File(it).delete() } }
             }
@@ -360,6 +370,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         val m = media.firstOrNull { it.id == id } ?: return
         media.remove(m)
         m.coverPath?.let { runCatching { File(it).delete() } }
+        m.coverWidePath?.let { runCatching { File(it).delete() } }
         store.saveMedia(media.toList())
         groups.indices.toList().forEach { i -> if (id in groups[i].ids) groups[i] = groups[i].copy(ids = groups[i].ids - id) }
         store.saveGroups(groups.toList())

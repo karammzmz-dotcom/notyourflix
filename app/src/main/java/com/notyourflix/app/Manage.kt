@@ -30,7 +30,8 @@ fun EditScreen(vm: Vm, id: String) {
     var rating by remember { mutableStateOf(m.rating) }
     var genres by remember { mutableStateOf(m.genres) }
     var customGenre by remember { mutableStateOf("") }
-    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) vm.setCover(m.id, u) }
+    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) vm.setCover(m.id, u, false) }
+    val pickCoverWide = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) vm.setCover(m.id, u, true) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -62,8 +63,10 @@ fun EditScreen(vm: Vm, id: String) {
                     customGenre = ""
                 }
             }
-            Text(tr("cover_image"), color = Muted)
+            Text(tr("cover_vertical"), color = Muted)
             Btn(tr("change_cover")) { pickCover.launch(arrayOf("image/*")) }
+            Text(tr("cover_horizontal"), color = Muted)
+            Btn(tr("change_cover")) { pickCoverWide.launch(arrayOf("image/*")) }
             Spacer(Modifier.height(10.dp))
             Btn(tr("save"), Modifier.fillMaxWidth(), primary = true) {
                 if (title.isBlank()) Toast.makeText(ctx, Strings.get(vm.prefs.lang, "fill_form"), Toast.LENGTH_SHORT).show()

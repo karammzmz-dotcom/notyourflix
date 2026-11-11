@@ -110,6 +110,7 @@ fun HomeTab(vm: Vm) {
         val pw = if (compact) 118.dp else 160.dp
         val lw = if (compact) 190.dp else 260.dp
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+            item { HeroBanner(vm, list.first(), compact) }
             if (cont.isNotEmpty()) item {
                 Section(tr("continue_watching")) {
                     LazyRow(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -394,6 +395,8 @@ fun UploadScreen(vm: Vm) {
     val lang = vm.prefs.lang
 
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { cover = it }
+    var coverWide by remember { mutableStateOf<Uri?>(null) }
+    val pickCoverWide = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { coverWide = it }
     val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { l ->
         if (l.isNotEmpty()) { l.forEach { persist(ctx, it) }; videos = l }
     }
@@ -412,10 +415,15 @@ fun UploadScreen(vm: Vm) {
             }
             OutlinedTextField(title, { title = it }, label = { Text(tr("title")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(desc, { desc = it }, label = { Text(tr("description")) }, minLines = 3, modifier = Modifier.fillMaxWidth())
-            Text(tr("cover_image"), color = Muted)
+            Text(tr("cover_vertical"), color = Muted)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Btn(tr("upload_own_image")) { pickCover.launch(arrayOf("image/*")) }
                 if (cover != null) Text(tr("selected"), color = Red, fontWeight = FontWeight.Bold)
+            }
+            Text(tr("cover_horizontal"), color = Muted)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Btn(tr("upload_own_image")) { pickCoverWide.launch(arrayOf("image/*")) }
+                if (coverWide != null) Text(tr("selected"), color = Red, fontWeight = FontWeight.Bold)
             }
             Text(tr("video_file"), color = Muted)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -456,7 +464,7 @@ fun UploadScreen(vm: Vm) {
                     Toast.makeText(ctx, Strings.get(lang, "fill_form"), Toast.LENGTH_SHORT).show()
                 } else {
                     busy = true
-                    vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, videos, subs) {
+                    vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, coverWide, videos, subs) {
                         Toast.makeText(ctx, Strings.get(lang, "saved"), Toast.LENGTH_SHORT).show()
                         vm.tab = TAB_HOME; vm.screen = Screen.Main
                     }
@@ -477,13 +485,14 @@ fun DetailScreen(vm: Vm, id: String) {
     val pickMore = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { l ->
         if (l.isNotEmpty()) { l.forEach { persist(ctx, it) }; vm.addEpisodes(m.id, l) }
     }
-    val cp = m.coverPath?.takeIf { File(it).exists() }
+    val cp = m.poster()
+    val bg = m.backdrop()
     val kids = vm.current?.kids == true
     var groupDlg by remember { mutableStateOf(false) }
     val meta = (if (m.type == "movie") tr("movie") else "${tr("series")} · ${m.videos.size} ${tr("episodes")}") + " · " + m.rating
 
     Box(Modifier.fillMaxSize()) {
-        if (cp != null) AsyncImage(File(cp), null, Modifier.fillMaxSize().blur(24.dp).graphicsLayer { alpha = 0.3f }, contentScale = ContentScale.Crop)
+        if (bg != null) AsyncImage(File(bg), null, Modifier.fillMaxSize().blur(12.dp).graphicsLayer { alpha = 0.35f }, contentScale = ContentScale.Crop)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 640.dp
             val info: @Composable () -> Unit = {
@@ -597,5 +606,40 @@ fun TypeTab(vm: Vm, type: String) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         SearchFilters(all, fGenre, fRating, { fGenre = it }, { fRating = it })
         SearchResults(vm, list, Modifier.weight(1f))
+    }
+}
+
+
+/** Big featured-title banner at the top of Home: backdrop, gradient, title, Play and More info. */
+@Composable
+fun HeroBanner(vm: Vm, m: MediaEntry, compact: Boolean) {
+    val bg = m.backdrop()
+    val pr = vm.progress[m.id]
+    val resumable = pr != null && pr.positionMs > 3000
+    val lang = vm.prefs.lang
+    val meta = (listOf(m.rating, if (m.type == "movie") Strings.get(lang, "movie") else Strings.get(lang, "series")) +
+        m.genres.take(3).map { genreText(lang, it) }).joinToString("  ·  ")
+    Box(Modifier.fillMaxWidth().height(if (compact) 320.dp else 440.dp)) {
+        if (bg != null) {
+            AsyncImage(File(bg), m.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            Box(Modifier.fillMaxSize().background(CardC))
+        }
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xCC000000), Color.Transparent))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x55000000), Bg))))
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(start = 24.dp, end = 24.dp, bottom = 22.dp).widthIn(max = 560.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(m.title, fontSize = if (compact) 28.sp else 40.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(meta, color = Color(0xFFDDDDE4), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+            if (m.description.isNotBlank()) {
+                Text(m.description, color = Color(0xFFDDDDE4), fontSize = 15.sp, maxLines = if (compact) 2 else 3, overflow = TextOverflow.Ellipsis)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Btn(if (resumable) tr("resume") else tr("play"), primary = true) { vm.screen = Screen.Player(m.id, false) }
+                Btn(tr("more_info")) { vm.screen = Screen.Detail(m.id) }
+            }
+        }
     }
 }
