@@ -65,9 +65,15 @@ fun EditScreen(vm: Vm, id: String) {
                 }
             }
             Text(tr("cover_vertical"), color = Muted)
-            Btn(tr("change_cover")) { pickCover.launch(arrayOf("image/*")) }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Btn(tr("change_cover")) { pickCover.launch(arrayOf("image/*")) }
+                if (m.coverPath != null) Btn(tr("remove")) { vm.removeCover(m.id, false) } else Text(tr("none"), color = Muted)
+            }
             Text(tr("cover_horizontal"), color = Muted)
-            Btn(tr("change_cover")) { pickCoverWide.launch(arrayOf("image/*")) }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Btn(tr("change_cover")) { pickCoverWide.launch(arrayOf("image/*")) }
+                if (m.coverWidePath != null) Btn(tr("remove")) { vm.removeCover(m.id, true) } else Text(tr("none"), color = Muted)
+            }
             Text(tr("title_logo"), color = Muted)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Btn(tr("change_cover")) { pickLogo.launch(arrayOf("image/*")) }

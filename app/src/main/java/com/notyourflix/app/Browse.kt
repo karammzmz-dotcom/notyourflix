@@ -266,7 +266,15 @@ fun SettingsTab(vm: Vm) {
         adult(SRow(tr("upload_movie"), null) { vm.screen = Screen.Upload }),
         adult(SRow(tr("manage_groups"), null) { dlg = "groups" }),
         SRow(if (me.pin == null) tr("lock_add") else tr("lock_remove"), null) { pinErr = null; firstPin = null; dlg = if (me.pin == null) "lockAdd" else "lockRemove" },
-        SRow(tr("kids_mode"), if (me.kids) tr("on") else tr("off")) { if (me.kids) guarded { vm.setKids(false) } else vm.setKids(true) },
+        SRow(tr("kids_mode"), if (me.kids) tr("on") else tr("off")) {
+            if (!me.kids) vm.setKids(true)
+            else if (me.kidsPin != null) { guard = { vm.setKids(false) }; pinErr = null; dlg = "guardKids" }
+            else guarded { vm.setKids(false) }
+        },
+        SRow(if (me.kidsPin == null) tr("kids_lock_add") else tr("kids_lock_remove"), null) {
+            pinErr = null; firstPin = null
+            dlg = if (me.kidsPin == null) "kidsLockAdd" else "kidsLockRemove"
+        },
         SRow(tr("age_filter"), if (me.kids) tr("locked_kids") else if (me.maxRating == "NC-17") tr("no_limit") else me.maxRating) {
             if (me.kids) Toast.makeText(ctx, Strings.get(p.lang, "locked_kids"), Toast.LENGTH_SHORT).show() else dlg = "age"
         },
@@ -349,6 +357,18 @@ fun SettingsTab(vm: Vm) {
         "guard" -> PinDialog(tr("enter_pin"), pinErr, { pin ->
             if (vm.checkPin(me, pin)) { val a = guard; guard = null; dlg = ""; a?.invoke() } else pinErr = Strings.get(p.lang, "wrong_pin")
         }) { dlg = ""; guard = null }
+        "guardKids" -> PinDialog(tr("enter_pin"), pinErr, { pin ->
+            if (vm.checkKidsPin(me, pin)) { val a = guard; guard = null; dlg = ""; a?.invoke() } else pinErr = Strings.get(p.lang, "wrong_pin")
+        }) { dlg = ""; guard = null }
+        "kidsLockAdd" -> PinDialog(if (firstPin == null) tr("set_pin") else tr("confirm_pin"), pinErr, { pin ->
+            val f = firstPin
+            if (f == null) { firstPin = pin; pinErr = null }
+            else if (f == pin) { vm.setKidsPin(pin); dlg = "" }
+            else { pinErr = Strings.get(p.lang, "pin_mismatch"); firstPin = null }
+        }) { dlg = "" }
+        "kidsLockRemove" -> PinDialog(tr("enter_pin"), pinErr, { pin ->
+            if (vm.checkKidsPin(me, pin)) { vm.setKidsPin(null); dlg = "" } else pinErr = Strings.get(p.lang, "wrong_pin")
+        }) { dlg = "" }
         "age" -> ChoiceDialog(tr("age_filter"), RATINGS.map { it to (if (it == "NC-17") tr("no_limit") else it) }, me.maxRating, { k ->
             dlg = ""
             guarded { vm.setMaxRating(k) }

@@ -23,7 +23,7 @@ import java.util.UUID
 
 data class Profile(
     val id: String, val name: String, val colorIndex: Int, val imagePath: String?, val pin: String?,
-    val kids: Boolean = false, val maxRating: String = "NC-17"
+    val kids: Boolean = false, val maxRating: String = "NC-17", val kidsPin: String? = null
 )
 data class MediaGroup(val id: String, val name: String, val ids: List<String>)
 
@@ -110,14 +110,14 @@ class Store(app: Application) {
             val o = a.getJSONObject(it)
             Profile(o.getString("id"), o.getString("name"), o.optInt("c"),
                 o.optString("img").ifEmpty { null }, o.optString("pin").ifEmpty { null },
-                o.optBoolean("k"), o.optString("m", "NC-17"))
+                o.optBoolean("k"), o.optString("m", "NC-17"), o.optString("kp").ifEmpty { null })
         }
     }
     fun saveProfiles(l: List<Profile>) {
         val a = JSONArray()
         l.forEach { p ->
             a.put(JSONObject().put("id", p.id).put("name", p.name).put("c", p.colorIndex)
-                .put("img", p.imagePath ?: "").put("pin", p.pin ?: "").put("k", p.kids).put("m", p.maxRating))
+                .put("img", p.imagePath ?: "").put("pin", p.pin ?: "").put("k", p.kids).put("m", p.maxRating).put("kp", p.kidsPin ?: ""))
         }
         sp.edit().putString("profiles", a.toString()).apply()
     }
@@ -250,6 +250,9 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     }
     fun chooseSubLang(l: String) { subLang = l; currentId?.let { store.saveSubLang(it, l) } }
 
+    fun setKidsPin(pin: String?) { current?.let { updateProfile(it.copy(kidsPin = pin?.let(::hashPin))) } }
+    fun checkKidsPin(p: Profile, pin: String) = p.kidsPin == hashPin(pin)
+
     fun setKids(on: Boolean) { current?.let { updateProfile(it.copy(kids = on)) } }
     fun setMaxRating(r: String) { current?.let { updateProfile(it.copy(maxRating = r)) } }
 
@@ -364,6 +367,16 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
             }
             done(path != null)
         }
+    }
+
+    fun removeCover(id: String, wide: Boolean) {
+        val i = media.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val cur = media[i]
+        val old = if (wide) cur.coverWidePath else cur.coverPath
+        media[i] = if (wide) cur.copy(coverWidePath = null) else cur.copy(coverPath = null)
+        store.saveMedia(media.toList())
+        old?.let { runCatching { File(it).delete() } }
     }
 
     /** Title logo image, shown only on the Home banner. Pass null to remove it. */
