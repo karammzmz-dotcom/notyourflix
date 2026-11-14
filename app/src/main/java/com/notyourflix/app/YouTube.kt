@@ -174,26 +174,38 @@ object YouTube {
         }
     }
 
-    /** Reads the public playlist page (first ~100 videos). */
+    private val WEB = YtClient("WEB", "1", "2.20250310.01.00", UA, emptyMap())
+
+    private fun browse(body: JSONObject): JSONObject {
+        val client = JSONObject().put("clientName", WEB.name).put("clientVersion", WEB.version).put("hl", "en").put("gl", "US")
+        body.put("context", JSONObject().put("client", client))
+        return JSONObject(post("https://www.youtube.com/youtubei/v1/browse?prettyPrint=false", body.toString(), WEB))
+    }
+
+    /** Reads every video of a public playlist, following YouTube's "continuation" pages until the end. */
     fun fetchPlaylist(listId: String): YtPlaylist {
-        val c = open(
-            "https://www.youtube.com/playlist?list=$listId&hl=en", null, UA,
-            mapOf("Accept-Language" to "en-US,en;q=0.9", "Cookie" to "SOCS=CAI; CONSENT=YES+1")
-        )
-        val html = c.inputStream.bufferedReader().use { it.readText() }
-        val marker = "ytInitialData = "
-        val i = html.indexOf(marker)
-        val s = if (i < 0) -1 else html.indexOf('{', i)
-        val e = if (s < 0) -1 else html.indexOf(";</script>", s)
-        if (s < 0 || e < 0) throw YtException("couldn't read the playlist page")
-        val data = JSONObject(html.substring(s, e))
-        val found = ArrayList<JSONObject>()
-        collect(data, "playlistVideoRenderer", found)
-        val vids = found.mapNotNull { r ->
-            val id = r.optString("videoId")
-            if (id.length == 11) Pair(id, textOf(r.optJSONObject("title"))) else null
-        }.distinctBy { it.first }
+        var data = browse(JSONObject().put("browseId", "VL$listId"))
         val meta = data.optJSONObject("metadata")?.optJSONObject("playlistMetadataRenderer")
+        val vids = ArrayList<Pair<String, String>>()
+        val seen = HashSet<String>()
+        var pages = 0
+        while (true) {
+            val found = ArrayList<JSONObject>()
+            collect(data, "playlistVideoRenderer", found)
+            for (r in found) {
+                val id = r.optString("videoId")
+                if (id.length == 11 && seen.add(id)) vids.add(Pair(id, textOf(r.optJSONObject("title"))))
+            }
+            val conts = ArrayList<JSONObject>()
+            collect(data, "continuationItemRenderer", conts)
+            val token = conts.firstNotNullOfOrNull {
+                it.optJSONObject("continuationEndpoint")?.optJSONObject("continuationCommand")?.optString("token")?.ifBlank { null }
+            }
+            pages++
+            if (token == null || pages > 2000) break
+            data = browse(JSONObject().put("continuation", token))
+        }
+        if (vids.isEmpty()) throw YtException("no videos found in this playlist (it may be private)")
         return YtPlaylist(meta?.optString("title").orEmpty(), meta?.optString("description").orEmpty(), vids)
     }
 

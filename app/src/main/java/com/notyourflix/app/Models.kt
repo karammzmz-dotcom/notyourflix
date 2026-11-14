@@ -498,7 +498,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
                         }
                     } else {
                         val pl = YouTube.fetchPlaylist(listId!!)
-                        val ids = pl.videos.take(50)
+                        val ids = pl.videos
                         if (ids.isEmpty()) throw YtException("no videos found in this playlist")
                         val gots = ArrayList<Got>()
                         var lastErr: Exception? = null
@@ -531,7 +531,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
                 store.saveMedia(media.toList())
                 yt = YtState(stage = "yt_done", finished = true, detail = if (entries.size > 1) "${entries.size}" else "")
             } catch (e: Exception) {
-                yt = YtState(stage = "yt_fail", detail = e.message ?: "", error = true)
+                yt = YtState(stage = "yt_fail", detail = (e.message ?: "").take(200), error = true)
             }
         }
     }
