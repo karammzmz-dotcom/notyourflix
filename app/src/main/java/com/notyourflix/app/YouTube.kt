@@ -125,30 +125,45 @@ object YouTube {
         return c.inputStream.bufferedReader().use { it.readText() }
     }
 
+    @Volatile
+    private var sts: Int? = null
+
+    /** The "signature timestamp" that web-style clients must send. Read once from YouTube's player script. */
+    private fun signatureTimestamp(): Int? {
+        sts?.let { return it }
+        return runCatching {
+            val api = getText("https://www.youtube.com/iframe_api")
+            val pid = Regex("player\\\\?/([a-zA-Z0-9_-]{8})").find(api)?.groupValues?.get(1) ?: return@runCatching null
+            val js = getText("https://www.youtube.com/s/player/$pid/player_ias.vflset/en_US/base.js")
+            Regex("(?:signatureTimestamp|sts)\\s*:\\s*(\\d{5})").find(js)?.groupValues?.get(1)?.toInt()
+        }.getOrNull()?.also { sts = it }
+    }
+
     fun fetchInfo(id: String): YtInfo {
-        var playability: Exception? = null
-        var last: Exception? = null
-        val list = if (cookies != null) AUTH_CLIENTS + CLIENTS else CLIENTS
+        // plain clients first (they work signed out); the signed-in clients are the fallback
+        val list = CLIENTS + (if (cookies != null) AUTH_CLIENTS else emptyList())
+        val byMessage = LinkedHashMap<String, MutableList<String>>()
         for (client in list) {
             try {
                 return fetchWith(client, id)
-            } catch (e: YtException) {
-                if (e.message?.startsWith("HTTP") != true && e.message != "no direct video link available" && playability == null) playability = e
-                last = e
             } catch (e: Exception) {
-                last = e
+                val msg = (e.message ?: "error").take(100)
+                byMessage.getOrPut(msg) { ArrayList() }.add(client.name)
             }
         }
-        throw YtException((playability ?: last)?.message ?: "failed")
+        throw YtException(byMessage.entries.joinToString("  |  ") { (m, names) -> names.joinToString(", ") + ": " + m })
     }
 
     private fun fetchWith(client: YtClient, id: String): YtInfo {
         val cj = JSONObject().put("clientName", client.name).put("clientVersion", client.version)
             .put("hl", "en").put("gl", "US").put("timeZone", "UTC").put("utcOffsetMinutes", 0)
         client.extra.forEach { (k, v) -> cj.put(k, v) }
-        val body = JSONObject().put("videoId", id).put("contentCheckOk", true).put("racyCheckOk", true)
-            .put("context", JSONObject().put("client", cj)).toString()
-        val r = JSONObject(post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body, client))
+        val bj = JSONObject().put("videoId", id).put("contentCheckOk", true).put("racyCheckOk", true)
+            .put("context", JSONObject().put("client", cj))
+        if (client.auth) {
+            signatureTimestamp()?.let { bj.put("playbackContext", JSONObject().put("contentPlaybackContext", JSONObject().put("signatureTimestamp", it))) }
+        }
+        val r = JSONObject(post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", bj.toString(), client))
 
         val ps = r.optJSONObject("playabilityStatus")
         val status = ps?.optString("status") ?: ""

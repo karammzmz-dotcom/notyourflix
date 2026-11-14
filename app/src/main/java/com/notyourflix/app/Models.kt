@@ -553,7 +553,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
                 store.saveMedia(media.toList())
                 yt = YtState(stage = "yt_done", finished = true, detail = if (entries.size > 1) "${entries.size}" else "")
             } catch (e: Exception) {
-                yt = YtState(stage = "yt_fail", detail = (e.message ?: "").take(200), error = true)
+                yt = YtState(stage = "yt_fail", detail = (e.message ?: "").take(600), error = true)
             }
         }
     }

@@ -422,7 +422,7 @@ fun SettingsTab(vm: Vm) {
                 if (st.stage.isNotEmpty()) {
                     Text(tr(st.stage) + (if (st.detail.isNotBlank()) "  " + st.detail else ""), color = if (st.error) Red else Muted)
                 }
-                if (st.error && !vm.ytSignedIn && st.detail.contains("sign in", ignoreCase = true)) {
+                if (st.error && st.detail.contains("sign in", ignoreCase = true)) {
                     Spacer(Modifier.height(4.dp))
                     Text(tr("yt_bot_hint"), color = Muted, fontSize = 12.sp)
                 }
