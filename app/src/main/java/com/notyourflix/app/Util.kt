@@ -2,6 +2,7 @@ package com.notyourflix.app
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 
 fun displayName(ctx: Context, uri: Uri): String = runCatching {
@@ -73,3 +74,12 @@ fun buildEpisodes(ctx: Context, videos: List<Uri>, subs: List<Uri>): List<Episod
         Episode(u.toString(), if (vs.size > 1) base else "", mine.map { (su, sn, _) -> makeSub(su, sn) })
     }
 }
+
+/** Display name of a folder chosen with the system folder picker. */
+fun folderName(ctx: Context, tree: String): String = runCatching {
+    val t = Uri.parse(tree)
+    val doc = DocumentsContract.buildDocumentUriUsingTree(t, DocumentsContract.getTreeDocumentId(t))
+    ctx.contentResolver.query(doc, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
+        if (c.moveToFirst()) c.getString(0) else null
+    }
+}.getOrNull() ?: Uri.parse(tree).lastPathSegment ?: tree

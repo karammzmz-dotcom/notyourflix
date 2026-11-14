@@ -235,6 +235,16 @@ fun SettingsTab(vm: Vm) {
     fun adult(r: SRow): SRow? = if (me.kids) null else r
 
     val pickImg = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.setProfileImage(uri) }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching {
+                ctx.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            }
+            vm.updatePrefs { it.copy(ytFolder = uri.toString()) }
+        }
+    }
     val pickFont = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.setCustomFont(uri) { ok ->
             Toast.makeText(ctx, Strings.get(vm.prefs.lang, if (ok) "saved" else "bad_font"), Toast.LENGTH_SHORT).show()
@@ -372,25 +382,51 @@ fun SettingsTab(vm: Vm) {
         }) { dlg = "" }
         "yt" -> NyDialog({ dlg = "" }) {
             var url by remember { mutableStateOf("") }
+            var plist by remember { mutableStateOf(false) }
+            var asSeries by remember { mutableStateOf(true) }
             val st = vm.yt
-            Text(tr("yt_import"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(url, { url = it }, label = { Text(tr("yt_url")) }, singleLine = true, enabled = !st.busy, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(10.dp))
-            if (st.stage.isNotEmpty()) {
-                Text(tr(st.stage) + (if (st.detail.isNotBlank()) "  " + st.detail else ""), color = if (st.error) Red else Muted)
-            }
-            if (st.busy) {
+            val folderLabel = remember(p.ytFolder) { p.ytFolder?.let { folderName(ctx, it) } }
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(tr("yt_import"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill(tr("yt_mode_video"), !plist) { plist = false }
+                    Pill(tr("yt_mode_playlist"), plist) { plist = true }
+                }
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(url, { url = it }, label = { Text(tr("yt_url")) }, singleLine = true, enabled = !st.busy, modifier = Modifier.fillMaxWidth())
+                if (plist) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Pill(tr("yt_as_series"), asSeries) { asSeries = true }
+                        Pill(tr("yt_as_separate"), !asSeries) { asSeries = false }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(tr("yt_playlist_note"), color = Muted, fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(tr("yt_save_to") + ": " + (folderLabel ?: tr("yt_app_storage")), color = Muted)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Btn(tr("yt_choose")) { pickFolder.launch(null) }
+                    if (p.ytFolder != null) Btn(tr("yt_app_storage")) { vm.updatePrefs { it.copy(ytFolder = null) } }
+                }
+                Spacer(Modifier.height(10.dp))
+                if (st.stage.isNotEmpty()) {
+                    Text(tr(st.stage) + (if (st.detail.isNotBlank()) "  " + st.detail else ""), color = if (st.error) Red else Muted)
+                }
+                if (st.busy) {
+                    Spacer(Modifier.height(8.dp))
+                    if (st.progress >= 0f) LinearProgressIndicator(progress = { st.progress }, modifier = Modifier.fillMaxWidth(), color = Red)
+                    else LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Red)
+                }
                 Spacer(Modifier.height(8.dp))
-                if (st.progress >= 0f) LinearProgressIndicator(progress = { st.progress }, modifier = Modifier.fillMaxWidth(), color = Red)
-                else LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Red)
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(tr("yt_note"), color = Muted, fontSize = 12.sp)
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Btn(tr("done")) { dlg = "" }
-                if (!st.busy) Btn(tr("yt_start"), primary = true) { vm.importYoutube(url) }
+                Text(tr("yt_note"), color = Muted, fontSize = 12.sp)
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Btn(tr("done")) { dlg = "" }
+                    if (!st.busy) Btn(tr("yt_start"), primary = true) { vm.importYoutube(url, plist, asSeries) }
+                }
             }
         }
         "age" -> ChoiceDialog(tr("age_filter"), RATINGS.map { it to (if (it == "NC-17") tr("no_limit") else it) }, me.maxRating, { k ->

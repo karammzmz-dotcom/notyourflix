@@ -1,12 +1,15 @@
 package com.notyourflix.app
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
 class YtException(msg: String) : Exception(msg)
+class YtPlaylist(val title: String, val description: String, val videos: List<Pair<String, String>>)
 class YtCaption(val url: String, val lang: String, val label: String, val auto: Boolean)
 class YtInfo(
     val id: String, val title: String, val author: String, val description: String,
@@ -56,12 +59,13 @@ object YouTube {
         return "HTTP $code" + (msg?.takeIf { it.isNotBlank() }?.let { " - " + it.take(160) } ?: "")
     }
 
-    private fun open(url: String, range: String? = null, ua: String = UA): HttpURLConnection {
+    private fun open(url: String, range: String? = null, ua: String = UA, extra: Map<String, String> = emptyMap()): HttpURLConnection {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 30000
         c.setRequestProperty("User-Agent", ua)
         if (range != null) c.setRequestProperty("Range", range)
+        extra.forEach { (k, v) -> c.setRequestProperty(k, v) }
         val code = c.responseCode
         if (code !in 200..299) throw YtException(errorText(c, code))
         return c
@@ -151,6 +155,48 @@ object YouTube {
         )
     }
 
+    fun playlistId(link: String): String? = Regex("[?&]list=([A-Za-z0-9_-]+)").find(link)?.groupValues?.get(1)
+
+    private fun textOf(o: JSONObject?): String =
+        o?.optString("simpleText")?.ifBlank { null } ?: o?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: ""
+
+    private fun collect(n: Any?, key: String, out: MutableList<JSONObject>) {
+        when (n) {
+            is JSONObject -> {
+                val keys = n.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val v = n.opt(k)
+                    if (k == key && v is JSONObject) out.add(v) else collect(v, key, out)
+                }
+            }
+            is JSONArray -> for (i in 0 until n.length()) collect(n.opt(i), key, out)
+        }
+    }
+
+    /** Reads the public playlist page (first ~100 videos). */
+    fun fetchPlaylist(listId: String): YtPlaylist {
+        val c = open(
+            "https://www.youtube.com/playlist?list=$listId&hl=en", null, UA,
+            mapOf("Accept-Language" to "en-US,en;q=0.9", "Cookie" to "SOCS=CAI; CONSENT=YES+1")
+        )
+        val html = c.inputStream.bufferedReader().use { it.readText() }
+        val marker = "ytInitialData = "
+        val i = html.indexOf(marker)
+        val s = if (i < 0) -1 else html.indexOf('{', i)
+        val e = if (s < 0) -1 else html.indexOf(";</script>", s)
+        if (s < 0 || e < 0) throw YtException("couldn't read the playlist page")
+        val data = JSONObject(html.substring(s, e))
+        val found = ArrayList<JSONObject>()
+        collect(data, "playlistVideoRenderer", found)
+        val vids = found.mapNotNull { r ->
+            val id = r.optString("videoId")
+            if (id.length == 11) Pair(id, textOf(r.optJSONObject("title"))) else null
+        }.distinctBy { it.first }
+        val meta = data.optJSONObject("metadata")?.optJSONObject("playlistMetadataRenderer")
+        return YtPlaylist(meta?.optString("title").orEmpty(), meta?.optString("description").orEmpty(), vids)
+    }
+
     /** One track per supported language (manual captions preferred), at most four. */
     fun pickCaptions(all: List<YtCaption>): List<YtCaption> {
         val out = ArrayList<YtCaption>()
@@ -167,33 +213,35 @@ object YouTube {
         if ("fmt=" in base) base.replace(Regex("fmt=[^&]*"), "fmt=vtt") else "$base&fmt=vtt"
 
     fun downloadFile(url: String, out: File, expected: Long = 0, ua: String = UA, onProgress: (Float) -> Unit = {}) {
-        out.outputStream().use { os ->
-            val buf = ByteArray(64 * 1024)
-            var done = 0L
-            fun pump(c: HttpURLConnection) {
-                c.inputStream.use { ins ->
-                    while (true) {
-                        val n = ins.read(buf)
-                        if (n < 0) break
-                        os.write(buf, 0, n)
-                        done += n
-                        if (expected > 0) onProgress(done.toFloat() / expected)
-                    }
+        out.outputStream().use { downloadTo(url, it, expected, ua, onProgress) }
+    }
+
+    fun downloadTo(url: String, os: OutputStream, expected: Long = 0, ua: String = UA, onProgress: (Float) -> Unit = {}) {
+        val buf = ByteArray(64 * 1024)
+        var done = 0L
+        fun pump(c: HttpURLConnection) {
+            c.inputStream.use { ins ->
+                while (true) {
+                    val n = ins.read(buf)
+                    if (n < 0) break
+                    os.write(buf, 0, n)
+                    done += n
+                    if (expected > 0) onProgress(done.toFloat() / expected)
                 }
             }
-            if (expected > 0) {
-                val chunk = 9_437_184L
-                var start = 0L
-                while (start < expected) {
-                    val end = minOf(start + chunk, expected) - 1
-                    val c = open(url, "bytes=$start-$end", ua)
-                    pump(c)
-                    if (c.responseCode == 200) break // server ignored the range and sent everything
-                    start = end + 1
-                }
-            } else {
-                pump(open(url, null, ua))
+        }
+        if (expected > 0) {
+            val chunk = 9_437_184L
+            var start = 0L
+            while (start < expected) {
+                val end = minOf(start + chunk, expected) - 1
+                val c = open(url, "bytes=$start-$end", ua)
+                pump(c)
+                if (c.responseCode == 200) break // server ignored the range and sent everything
+                start = end + 1
             }
+        } else {
+            pump(open(url, null, ua))
         }
     }
 }

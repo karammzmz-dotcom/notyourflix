@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -18,6 +19,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
+import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -76,7 +79,7 @@ data class Prefs(
     val sound: String = "soft", val soundUri: String? = null,
     val intro: String = "zoom", val introUri: String? = null,
     val profileIntro: String = "zoom", val profileIntroUri: String? = null,
-    val fontPath: String? = null
+    val fontPath: String? = null, val ytFolder: String? = null
 )
 
 const val TAB_SEARCH = 0
@@ -190,12 +193,12 @@ class Store(app: Application) {
             o.optString("sound", d.sound), o.optString("soundUri").ifEmpty { null },
             o.optString("intro", d.intro), o.optString("introUri").ifEmpty { null },
             o.optString("pintro", d.profileIntro), o.optString("pintroUri").ifEmpty { null },
-            o.optString("fontPath").ifEmpty { null }
+            o.optString("fontPath").ifEmpty { null }, o.optString("ytfolder").ifEmpty { null }
         )
     }
     fun savePrefs(p: Prefs) {
         val o = JSONObject().put("lang", p.lang).put("font", p.font).put("sound", p.sound).put("soundUri", p.soundUri ?: "")
-            .put("intro", p.intro).put("introUri", p.introUri ?: "").put("pintro", p.profileIntro).put("pintroUri", p.profileIntroUri ?: "").put("fontPath", p.fontPath ?: "")
+            .put("intro", p.intro).put("introUri", p.introUri ?: "").put("pintro", p.profileIntro).put("pintroUri", p.profileIntroUri ?: "").put("fontPath", p.fontPath ?: "").put("ytfolder", p.ytFolder ?: "")
         sp.edit().putString("prefs", o.toString()).apply()
     }
 }
@@ -399,61 +402,135 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun importYoutube(link: String) {
-        if (yt.busy) return
-        val vid = YouTube.videoId(link)
-        if (vid == null) { yt = YtState(stage = "yt_bad_link", error = true); return }
-        yt = YtState(busy = true, stage = "yt_info")
-        viewModelScope.launch {
-            val files = ArrayList<File>()
+    private class Sink(val stream: OutputStream, val uri: String, val cleanup: () -> Unit)
+    private class Got(val info: YtInfo, val episode: Episode, val thumb: String?)
+
+    private fun safeName(s: String): String = s.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().take(80).ifBlank { "video" }
+
+    /** Opens an output file either in the folder the user chose or in app storage. */
+    private fun openSink(folder: String?, name: String, mime: String, fallback: File): Sink {
+        if (folder != null) {
+            val tree = Uri.parse(folder)
             try {
-                val entry = withContext(Dispatchers.IO) {
-                    val info = YouTube.fetchInfo(vid)
+                val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+                val doc = DocumentsContract.createDocument(app.contentResolver, parent, mime, name)
+                    ?: throw IOException("Couldn't create a file in the chosen folder. Choose the folder again.")
+                val os = app.contentResolver.openOutputStream(doc)
+                    ?: throw IOException("Couldn't write to the chosen folder. Choose the folder again.")
+                return Sink(os, doc.toString()) { runCatching { DocumentsContract.deleteDocument(app.contentResolver, doc) } }
+            } catch (e: SecurityException) {
+                throw IOException("No access to the chosen folder. Choose the folder again.")
+            }
+        }
+        return Sink(fallback.outputStream(), Uri.fromFile(fallback).toString()) { runCatching { fallback.delete() } }
+    }
 
-                    var thumb: String? = null
-                    val tu = info.thumbUrl
-                    if (tu != null) {
-                        yt = YtState(busy = true, stage = "yt_thumb")
-                        val f = File(app.filesDir, "img_${UUID.randomUUID()}.jpg")
-                        files.add(f)
-                        runCatching { YouTube.downloadFile(tu, f); thumb = f.absolutePath }
-                    }
+    private fun fetchVideo(vid: String, folder: String?, cleanups: MutableList<() -> Unit>, idx: Int, n: Int): Got {
+        val tag = if (n > 1) "${idx + 1}/$n" else ""
+        yt = YtState(busy = true, stage = "yt_info", detail = tag)
+        val info = YouTube.fetchInfo(vid)
 
-                    yt = YtState(busy = true, stage = "yt_subs")
-                    val subs = ArrayList<Sub>()
-                    for (c in YouTube.pickCaptions(info.captions)) {
-                        runCatching {
-                            val text = YouTube.getText(YouTube.vttUrl(c.url))
-                            if (text.isNotBlank()) {
-                                val f = File(app.filesDir, "yt_${vid}_${c.lang}_${subs.size}.vtt")
-                                f.writeText(text)
-                                files.add(f)
-                                val label = if (LANGS.any { it.first == c.lang }) langLabel(c.lang) else c.label.ifBlank { c.lang }
-                                subs.add(Sub(Uri.fromFile(f).toString(), c.lang, label, "text/vtt"))
+        var thumb: String? = null
+        val tu = info.thumbUrl
+        if (tu != null) {
+            yt = YtState(busy = true, stage = "yt_thumb", detail = tag)
+            val f = File(app.filesDir, "img_${UUID.randomUUID()}.jpg")
+            cleanups.add { runCatching { f.delete() } }
+            runCatching { YouTube.downloadFile(tu, f); thumb = f.absolutePath }
+        }
+
+        yt = YtState(busy = true, stage = "yt_subs", detail = tag)
+        val base = safeName(info.title) + " [" + vid + "]"
+        val subs = ArrayList<Sub>()
+        for (c in YouTube.pickCaptions(info.captions)) {
+            runCatching {
+                val text = YouTube.getText(YouTube.vttUrl(c.url))
+                if (text.isNotBlank()) {
+                    val sk = openSink(folder, "$base.${c.lang}.vtt", "application/octet-stream", File(app.filesDir, "yt_${vid}_${c.lang}_${subs.size}.vtt"))
+                    cleanups.add(sk.cleanup)
+                    sk.stream.use { it.write(text.toByteArray()) }
+                    val label = if (LANGS.any { it.first == c.lang }) langLabel(c.lang) else c.label.ifBlank { c.lang }
+                    subs.add(Sub(sk.uri, c.lang, label, "text/vtt"))
+                }
+            }
+        }
+
+        val vsink = openSink(folder, "$base.mp4", "video/mp4", File(app.filesDir, "yt_$vid.mp4"))
+        cleanups.add(vsink.cleanup)
+        var last = -1
+        yt = YtState(busy = true, stage = "yt_video", detail = tag, progress = idx.toFloat() / n)
+        vsink.stream.use { os ->
+            YouTube.downloadTo(info.videoUrl, os, info.videoSize, info.ua) { p ->
+                val pct = (p * 100).toInt()
+                if (pct != last) {
+                    last = pct
+                    yt = YtState(busy = true, stage = "yt_video", detail = (if (tag.isEmpty()) "" else "$tag  ") + "$pct%", progress = (idx + p) / n)
+                }
+            }
+        }
+        return Got(info, Episode(vsink.uri, info.title, subs), thumb)
+    }
+
+    private fun entryFor(g: Got) = MediaEntry(
+        UUID.randomUUID().toString(), g.info.title, g.info.description.take(2000), "movie", null,
+        listOf(g.episode), System.currentTimeMillis(), emptyList(), "R", g.thumb, null, g.info.author
+    )
+
+    /** Imports one video, or a whole playlist (as one series or as separate titles). */
+    fun importYoutube(link: String, playlist: Boolean = false, asSeries: Boolean = true) {
+        if (yt.busy) return
+        val vid = if (playlist) null else YouTube.videoId(link)
+        val listId = if (playlist) YouTube.playlistId(link) else null
+        if (!playlist && vid == null) { yt = YtState(stage = "yt_bad_link", error = true); return }
+        if (playlist && listId == null) { yt = YtState(stage = "yt_need_list", error = true); return }
+        yt = YtState(busy = true, stage = "yt_info")
+        val folder = prefs.ytFolder
+        viewModelScope.launch {
+            try {
+                val entries = withContext(Dispatchers.IO) {
+                    if (vid != null) {
+                        val cl = ArrayList<() -> Unit>()
+                        try {
+                            listOf(entryFor(fetchVideo(vid, folder, cl, 0, 1)))
+                        } catch (e: Exception) {
+                            cl.forEach { it() }
+                            throw e
+                        }
+                    } else {
+                        val pl = YouTube.fetchPlaylist(listId!!)
+                        val ids = pl.videos.take(50)
+                        if (ids.isEmpty()) throw YtException("no videos found in this playlist")
+                        val gots = ArrayList<Got>()
+                        var lastErr: Exception? = null
+                        ids.forEachIndexed { idx, (id, _) ->
+                            val cl = ArrayList<() -> Unit>()
+                            try {
+                                gots.add(fetchVideo(id, folder, cl, idx, ids.size))
+                            } catch (e: Exception) {
+                                cl.forEach { it() }
+                                lastErr = e
                             }
                         }
+                        if (gots.isEmpty()) throw (lastErr ?: YtException("failed"))
+                        if (asSeries) {
+                            val first = gots.first()
+                            gots.drop(1).forEach { g -> g.thumb?.let { t -> runCatching { File(t).delete() } } }
+                            listOf(
+                                MediaEntry(
+                                    UUID.randomUUID().toString(), pl.title.ifBlank { first.info.title },
+                                    pl.description.ifBlank { first.info.description }.take(2000), "series", null,
+                                    gots.map { it.episode }, System.currentTimeMillis(), emptyList(), "R", first.thumb, null, first.info.author
+                                )
+                            )
+                        } else {
+                            gots.map { entryFor(it) }
+                        }
                     }
-
-                    val vf = File(app.filesDir, "yt_$vid.mp4")
-                    files.add(vf)
-                    yt = YtState(busy = true, stage = "yt_video", progress = 0f)
-                    var last = -1
-                    YouTube.downloadFile(info.videoUrl, vf, info.videoSize, info.ua) { p ->
-                        val pct = (p * 100).toInt()
-                        if (pct != last) { last = pct; yt = YtState(busy = true, stage = "yt_video", detail = "$pct%", progress = p) }
-                    }
-
-                    MediaEntry(
-                        UUID.randomUUID().toString(), info.title, info.description.take(2000), "movie", null,
-                        listOf(Episode(Uri.fromFile(vf).toString(), "", subs)), System.currentTimeMillis(),
-                        emptyList(), "R", thumb, null, info.author
-                    )
                 }
-                media.add(0, entry)
+                entries.reversed().forEach { media.add(0, it) }
                 store.saveMedia(media.toList())
-                yt = YtState(stage = "yt_done", finished = true)
+                yt = YtState(stage = "yt_done", finished = true, detail = if (entries.size > 1) "${entries.size}" else "")
             } catch (e: Exception) {
-                files.forEach { runCatching { it.delete() } }
                 yt = YtState(stage = "yt_fail", detail = e.message ?: "", error = true)
             }
         }
