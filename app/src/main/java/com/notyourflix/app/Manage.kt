@@ -26,6 +26,7 @@ fun EditScreen(vm: Vm, id: String) {
     val ctx = LocalContext.current
     var title by remember { mutableStateOf(m.title) }
     var desc by remember { mutableStateOf(m.description) }
+    var author by remember { mutableStateOf(m.author) }
     var type by remember { mutableStateOf(m.type) }
     var rating by remember { mutableStateOf(m.rating) }
     var genres by remember { mutableStateOf(m.genres) }
@@ -42,6 +43,7 @@ fun EditScreen(vm: Vm, id: String) {
                 Text(tr("edit_title"), fontSize = 28.sp, fontWeight = FontWeight.Black)
             }
             OutlinedTextField(title, { title = it }, label = { Text(tr("title")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(author, { author = it.take(60) }, label = { Text(tr("author")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(desc, { desc = it }, label = { Text(tr("description")) }, minLines = 3, modifier = Modifier.fillMaxWidth())
             Text(tr("video_type"), color = Muted)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -82,7 +84,7 @@ fun EditScreen(vm: Vm, id: String) {
             Spacer(Modifier.height(10.dp))
             Btn(tr("save"), Modifier.fillMaxWidth(), primary = true) {
                 if (title.isBlank()) Toast.makeText(ctx, Strings.get(vm.prefs.lang, "fill_form"), Toast.LENGTH_SHORT).show()
-                else { vm.updateMedia(m.id, title.trim(), desc.trim(), type, genres, rating); vm.screen = Screen.Detail(m.id) }
+                else { vm.updateMedia(m.id, title.trim(), desc.trim(), author.trim(), type, genres, rating); vm.screen = Screen.Detail(m.id) }
             }
         }
     }

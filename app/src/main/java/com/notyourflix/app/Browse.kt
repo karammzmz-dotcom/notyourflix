@@ -152,7 +152,7 @@ fun SearchTab(vm: Vm) {
     var fGenre by rememberSaveable { mutableStateOf("") }
     var fRating by rememberSaveable { mutableStateOf("") }
     val res = vm.visibleMedia.filter { m ->
-        (m.title.contains(q.trim(), ignoreCase = true) || m.genres.any { it.contains(q.trim(), ignoreCase = true) }) &&
+        (m.title.contains(q.trim(), ignoreCase = true) || m.author.contains(q.trim(), ignoreCase = true) || m.genres.any { it.contains(q.trim(), ignoreCase = true) }) &&
             (fGenre.isEmpty() || fGenre in m.genres) && (fRating.isEmpty() || m.rating == fRating)
     }
     val arabic = vm.prefs.lang == "ar"
@@ -264,6 +264,7 @@ fun SettingsTab(vm: Vm) {
         SRow(tr("change_name"), me.name) { dlg = "name" },
         SRow(tr("change_lang"), if (p.lang == "ar") "العربية" else "English") { dlg = "lang" },
         adult(SRow(tr("upload_movie"), null) { vm.screen = Screen.Upload }),
+        adult(SRow(tr("yt_import"), null) { if (!vm.yt.busy) vm.yt = YtState(); dlg = "yt" }),
         adult(SRow(tr("manage_groups"), null) { dlg = "groups" }),
         SRow(if (me.pin == null) tr("lock_add") else tr("lock_remove"), null) { pinErr = null; firstPin = null; dlg = if (me.pin == null) "lockAdd" else "lockRemove" },
         SRow(tr("kids_mode"), if (me.kids) tr("on") else tr("off")) {
@@ -369,6 +370,29 @@ fun SettingsTab(vm: Vm) {
         "kidsLockRemove" -> PinDialog(tr("enter_pin"), pinErr, { pin ->
             if (vm.checkKidsPin(me, pin)) { vm.setKidsPin(null); dlg = "" } else pinErr = Strings.get(p.lang, "wrong_pin")
         }) { dlg = "" }
+        "yt" -> NyDialog({ dlg = "" }) {
+            var url by remember { mutableStateOf("") }
+            val st = vm.yt
+            Text(tr("yt_import"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(url, { url = it }, label = { Text(tr("yt_url")) }, singleLine = true, enabled = !st.busy, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(10.dp))
+            if (st.stage.isNotEmpty()) {
+                Text(tr(st.stage) + (if (st.detail.isNotBlank()) "  " + st.detail else ""), color = if (st.error) Red else Muted)
+            }
+            if (st.busy) {
+                Spacer(Modifier.height(8.dp))
+                if (st.progress >= 0f) LinearProgressIndicator(progress = { st.progress }, modifier = Modifier.fillMaxWidth(), color = Red)
+                else LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Red)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(tr("yt_note"), color = Muted, fontSize = 12.sp)
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Btn(tr("done")) { dlg = "" }
+                if (!st.busy) Btn(tr("yt_start"), primary = true) { vm.importYoutube(url) }
+            }
+        }
         "age" -> ChoiceDialog(tr("age_filter"), RATINGS.map { it to (if (it == "NC-17") tr("no_limit") else it) }, me.maxRating, { k ->
             dlg = ""
             guarded { vm.setMaxRating(k) }
@@ -404,6 +428,7 @@ fun UploadScreen(vm: Vm) {
     var cover by remember { mutableStateOf<Uri?>(null) }
     var videos by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
+    var author by remember { mutableStateOf("") }
     var genres by remember { mutableStateOf<List<String>>(emptyList()) }
     var customGenre by remember { mutableStateOf("") }
     var subs by remember { mutableStateOf<List<Uri>>(emptyList()) }
@@ -436,6 +461,7 @@ fun UploadScreen(vm: Vm) {
                 Pill(tr("series"), type == "series") { type = "series" }
             }
             OutlinedTextField(title, { title = it }, label = { Text(tr("title")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(author, { author = it.take(60) }, label = { Text(tr("author")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(desc, { desc = it }, label = { Text(tr("description")) }, minLines = 3, modifier = Modifier.fillMaxWidth())
             Text(tr("cover_vertical"), color = Muted)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -491,7 +517,7 @@ fun UploadScreen(vm: Vm) {
                     Toast.makeText(ctx, Strings.get(lang, "fill_form"), Toast.LENGTH_SHORT).show()
                 } else {
                     busy = true
-                    vm.addMedia(title.trim(), desc.trim(), type, genres, rating, groupIds.toList(), cover, coverWide, logo, videos, subs) {
+                    vm.addMedia(title.trim(), desc.trim(), author.trim(), type, genres, rating, groupIds.toList(), cover, coverWide, logo, videos, subs) {
                         Toast.makeText(ctx, Strings.get(lang, "saved"), Toast.LENGTH_SHORT).show()
                         vm.tab = TAB_HOME; vm.screen = Screen.Main
                     }
@@ -525,6 +551,7 @@ fun DetailScreen(vm: Vm, id: String) {
             val info: @Composable () -> Unit = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(m.title, fontSize = if (wide) 36.sp else 28.sp, fontWeight = FontWeight.Black)
+                    if (m.author.isNotBlank()) Text(m.author, color = Muted, fontWeight = FontWeight.Bold)
                     Text(meta, color = Muted, fontWeight = FontWeight.Bold)
                     if (m.genres.isNotEmpty()) Text(m.genres.joinToString(", ") { genreText(vm.prefs.lang, it) }, color = Muted)
                     if (m.description.isNotBlank()) Text(m.description, fontSize = 16.sp, color = Color(0xFFDDDDE4))
@@ -644,7 +671,7 @@ fun HeroBanner(vm: Vm, m: MediaEntry, compact: Boolean) {
     val pr = vm.progress[m.id]
     val resumable = pr != null && pr.positionMs > 3000
     val lang = vm.prefs.lang
-    val meta = (listOf(m.rating, if (m.type == "movie") Strings.get(lang, "movie") else Strings.get(lang, "series")) +
+    val meta = (listOfNotNull(m.author.takeIf { it.isNotBlank() }, m.rating, if (m.type == "movie") Strings.get(lang, "movie") else Strings.get(lang, "series")) +
         m.genres.take(3).map { genreText(lang, it) }).joinToString("  ·  ")
     Box(Modifier.fillMaxWidth().height(if (compact) 320.dp else 440.dp)) {
         if (bg != null) {

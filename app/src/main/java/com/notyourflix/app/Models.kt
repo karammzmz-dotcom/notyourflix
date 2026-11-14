@@ -42,7 +42,7 @@ data class MediaEntry(
     val id: String, val title: String, val description: String, val type: String,
     val coverPath: String?, val episodes: List<Episode>, val addedAt: Long,
     val genres: List<String> = emptyList(), val rating: String = "R",
-    val coverWidePath: String? = null, val logoPath: String? = null
+    val coverWidePath: String? = null, val logoPath: String? = null, val author: String = ""
 ) {
     val videos: List<String> get() = episodes.map { it.uri }
 }
@@ -85,6 +85,11 @@ const val TAB_SHOWS = 2
 const val TAB_MOVIES = 3
 const val TAB_SETTINGS = 4
 const val TAB_COUNT = 5
+
+data class YtState(
+    val busy: Boolean = false, val stage: String = "", val detail: String = "",
+    val progress: Float = -1f, val finished: Boolean = false, val error: Boolean = false
+)
 
 sealed interface Screen {
     data object Intro : Screen
@@ -132,14 +137,14 @@ class Store(app: Application) {
             MediaEntry(o.getString("id"), o.getString("title"), o.optString("desc"), o.optString("type", "movie"),
                 o.optString("cover").ifEmpty { null }, eps, o.optLong("added"),
                 o.optJSONArray("genres")?.let { g -> (0 until g.length()).map { i -> g.getString(i) } } ?: emptyList(),
-                o.optString("rating", "R"), o.optString("coverw").ifEmpty { null }, o.optString("logo").ifEmpty { null })
+                o.optString("rating", "R"), o.optString("coverw").ifEmpty { null }, o.optString("logo").ifEmpty { null }, o.optString("author"))
         }
     }
     fun saveMedia(l: List<MediaEntry>) {
         val a = JSONArray()
         l.forEach { m ->
             a.put(JSONObject().put("id", m.id).put("title", m.title).put("desc", m.description).put("type", m.type)
-                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("eps", episodesToJson(m.episodes)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating).put("coverw", m.coverWidePath ?: "").put("logo", m.logoPath ?: ""))
+                .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("eps", episodesToJson(m.episodes)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating).put("coverw", m.coverWidePath ?: "").put("logo", m.logoPath ?: "").put("author", m.author))
         }
         sp.edit().putString("media", a.toString()).apply()
     }
@@ -207,6 +212,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     var tab by mutableIntStateOf(TAB_HOME)
     var subLang by mutableStateOf("off")
     var inPip by mutableStateOf(false)
+    var yt by mutableStateOf(YtState())
     var progress by mutableStateOf<Map<String, Progress>>(emptyMap())
 
     val current: Profile? get() = profiles.firstOrNull { it.id == currentId }
@@ -293,7 +299,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun addMedia(
-        title: String, desc: String, type: String, genres: List<String>, rating: String, groupIds: List<String>,
+        title: String, desc: String, author: String, type: String, genres: List<String>, rating: String, groupIds: List<String>,
         cover: Uri?, coverWide: Uri?, logo: Uri?, videos: List<Uri>, subs: List<Uri>, done: () -> Unit
     ) {
         viewModelScope.launch {
@@ -305,7 +311,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
                 Pair(Triple(vertical, wide, logo?.let { copyImage(it) }), eps)
             }
             val id = UUID.randomUUID().toString()
-            media.add(0, MediaEntry(id, title, desc, type, paths.first, eps, System.currentTimeMillis(), genres, rating, paths.second, paths.third))
+            media.add(0, MediaEntry(id, title, desc, type, paths.first, eps, System.currentTimeMillis(), genres, rating, paths.second, paths.third, author))
             store.saveMedia(media.toList())
             groupIds.forEach { toggleInGroup(it, id) }
             done()
@@ -330,10 +336,10 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         store.saveMedia(media.toList())
     }
 
-    fun updateMedia(id: String, title: String, desc: String, type: String, genres: List<String>, rating: String) {
+    fun updateMedia(id: String, title: String, desc: String, author: String, type: String, genres: List<String>, rating: String) {
         val i = media.indexOfFirst { it.id == id }
         if (i < 0) return
-        media[i] = media[i].copy(title = title, description = desc, type = type, genres = genres, rating = rating)
+        media[i] = media[i].copy(title = title, description = desc, author = author, type = type, genres = genres, rating = rating)
         store.saveMedia(media.toList())
     }
 
@@ -393,12 +399,77 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun importYoutube(link: String) {
+        if (yt.busy) return
+        val vid = YouTube.videoId(link)
+        if (vid == null) { yt = YtState(stage = "yt_bad_link", error = true); return }
+        yt = YtState(busy = true, stage = "yt_info")
+        viewModelScope.launch {
+            val files = ArrayList<File>()
+            try {
+                val entry = withContext(Dispatchers.IO) {
+                    val info = YouTube.fetchInfo(vid)
+
+                    var thumb: String? = null
+                    val tu = info.thumbUrl
+                    if (tu != null) {
+                        yt = YtState(busy = true, stage = "yt_thumb")
+                        val f = File(app.filesDir, "img_${UUID.randomUUID()}.jpg")
+                        files.add(f)
+                        runCatching { YouTube.downloadFile(tu, f); thumb = f.absolutePath }
+                    }
+
+                    yt = YtState(busy = true, stage = "yt_subs")
+                    val subs = ArrayList<Sub>()
+                    for (c in YouTube.pickCaptions(info.captions)) {
+                        runCatching {
+                            val text = YouTube.getText(YouTube.vttUrl(c.url))
+                            if (text.isNotBlank()) {
+                                val f = File(app.filesDir, "yt_${vid}_${c.lang}_${subs.size}.vtt")
+                                f.writeText(text)
+                                files.add(f)
+                                val label = if (LANGS.any { it.first == c.lang }) langLabel(c.lang) else c.label.ifBlank { c.lang }
+                                subs.add(Sub(Uri.fromFile(f).toString(), c.lang, label, "text/vtt"))
+                            }
+                        }
+                    }
+
+                    val vf = File(app.filesDir, "yt_$vid.mp4")
+                    files.add(vf)
+                    yt = YtState(busy = true, stage = "yt_video", progress = 0f)
+                    var last = -1
+                    YouTube.downloadFile(info.videoUrl, vf, info.videoSize) { p ->
+                        val pct = (p * 100).toInt()
+                        if (pct != last) { last = pct; yt = YtState(busy = true, stage = "yt_video", detail = "$pct%", progress = p) }
+                    }
+
+                    MediaEntry(
+                        UUID.randomUUID().toString(), info.title, info.description.take(2000), "movie", null,
+                        listOf(Episode(Uri.fromFile(vf).toString(), "", subs)), System.currentTimeMillis(),
+                        emptyList(), "R", thumb, null, info.author
+                    )
+                }
+                media.add(0, entry)
+                store.saveMedia(media.toList())
+                yt = YtState(stage = "yt_done", finished = true)
+            } catch (e: Exception) {
+                files.forEach { runCatching { it.delete() } }
+                yt = YtState(stage = "yt_fail", detail = e.message ?: "", error = true)
+            }
+        }
+    }
+
     fun deleteMedia(id: String) {
         val m = media.firstOrNull { it.id == id } ?: return
         media.remove(m)
         m.coverPath?.let { runCatching { File(it).delete() } }
         m.coverWidePath?.let { runCatching { File(it).delete() } }
         m.logoPath?.let { runCatching { File(it).delete() } }
+        // files this app downloaded itself (YouTube imports) live in app storage; remove them too
+        m.episodes.forEach { e ->
+            if (e.uri.startsWith("file:")) runCatching { File(Uri.parse(e.uri).path!!).delete() }
+            e.subs.filter { it.uri.startsWith("file:") }.forEach { s -> runCatching { File(Uri.parse(s.uri).path!!).delete() } }
+        }
         store.saveMedia(media.toList())
         groups.indices.toList().forEach { i -> if (id in groups[i].ids) groups[i] = groups[i].copy(ids = groups[i].ids - id) }
         store.saveGroups(groups.toList())
