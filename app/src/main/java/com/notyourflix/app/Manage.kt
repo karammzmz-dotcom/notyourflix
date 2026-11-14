@@ -1,6 +1,9 @@
 package com.notyourflix.app
 
 import android.net.Uri
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +20,7 @@ import androidx.compose.ui.platform.*
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.style.*
 import androidx.compose.ui.unit.*
+import androidx.compose.ui.viewinterop.AndroidView
 
 /** Edit title, description, type, rating, genres and cover of an existing title. */
 @Composable
@@ -195,5 +199,43 @@ fun EpisodeEditor(
                 Btn(tr("save"), primary = true) { onSave() }
             }
         }
+    }
+}
+
+
+/** Google sign-in inside the app. The session cookies are kept privately and only sent to YouTube. */
+@Composable
+fun YtLoginScreen(vm: Vm) {
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Btn("←") { vm.tab = TAB_SETTINGS; vm.screen = Screen.Main }
+            Text(tr("yt_signin_title"), fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+            Btn(tr("done"), primary = true) {
+                val c = CookieManager.getInstance().getCookie("https://www.youtube.com")
+                if (c != null && c.contains("SAPISID")) {
+                    vm.saveYtCookies(c)
+                    Toast.makeText(ctx, Strings.get(vm.prefs.lang, "yt_signin_ok"), Toast.LENGTH_SHORT).show()
+                    vm.tab = TAB_SETTINGS; vm.screen = Screen.Main
+                } else {
+                    Toast.makeText(ctx, Strings.get(vm.prefs.lang, "yt_signin_fail"), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        AndroidView(
+            factory = { c ->
+                WebView(c).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    // Google refuses sign-in inside a plain WebView, so present as regular mobile Chrome
+                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                    CookieManager.getInstance().setAcceptCookie(true)
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webViewClient = WebViewClient()
+                    loadUrl("https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F")
+                }
+            },
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        )
     }
 }

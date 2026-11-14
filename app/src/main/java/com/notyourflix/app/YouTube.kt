@@ -7,6 +7,7 @@ import java.io.IOException
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 class YtException(msg: String) : Exception(msg)
 class YtPlaylist(val title: String, val description: String, val videos: List<Pair<String, String>>)
@@ -16,7 +17,10 @@ class YtInfo(
     val thumbUrl: String?, val videoUrl: String, val videoSize: Long, val ua: String, val captions: List<YtCaption>
 )
 
-private class YtClient(val name: String, val id: String, val version: String, val ua: String, val extra: Map<String, Any>)
+private class YtClient(
+    val name: String, val id: String, val version: String, val ua: String,
+    val extra: Map<String, Any>, val auth: Boolean = false
+)
 
 /**
  * Minimal YouTube importer. It talks to YouTube's unofficial mobile "player" endpoint, which can change or
@@ -42,6 +46,30 @@ object YouTube {
             mapOf("androidSdkVersion" to 30)
         )
     )
+
+    /** Cookies from the in-app YouTube sign-in (null = signed out). Set by the app. */
+    @Volatile
+    var cookies: String? = null
+
+    // Clients that accept a signed-in session. Tried first when the user is signed in.
+    private val AUTH_CLIENTS = listOf(
+        YtClient(
+            "TVHTML5", "7", "7.20250310.16.00", "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+            mapOf("clientScreen" to "WATCH"), true
+        ),
+        YtClient("MWEB", "2", "2.20250311.03.00", UA, emptyMap(), true),
+        YtClient("WEB", "1", "2.20250310.01.00", UA, emptyMap(), true)
+    )
+
+    private fun authHeader(ck: String): String? {
+        val sid = Regex("(?:^|;\\s*)SAPISID=([^;]+)").find(ck)?.groupValues?.get(1)
+            ?: Regex("(?:^|;\\s*)__Secure-3PAPISID=([^;]+)").find(ck)?.groupValues?.get(1)
+            ?: return null
+        val ts = System.currentTimeMillis() / 1000
+        val hash = MessageDigest.getInstance("SHA-1").digest("$ts $sid https://www.youtube.com".toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return "SAPISIDHASH ${ts}_$hash"
+    }
 
     fun videoId(link: String): String? {
         val s = link.trim()
@@ -84,6 +112,13 @@ object YouTube {
         c.setRequestProperty("X-YouTube-Client-Name", client.id)
         c.setRequestProperty("X-YouTube-Client-Version", client.version)
         c.setRequestProperty("Origin", "https://www.youtube.com")
+        val ck = cookies
+        if (client.auth && ck != null) {
+            c.setRequestProperty("Cookie", ck)
+            authHeader(ck)?.let { c.setRequestProperty("Authorization", it) }
+            c.setRequestProperty("X-Goog-AuthUser", "0")
+            c.setRequestProperty("X-Origin", "https://www.youtube.com")
+        }
         c.outputStream.use { it.write(body.toByteArray()) }
         val code = c.responseCode
         if (code !in 200..299) throw IOException(errorText(c, code))
@@ -93,7 +128,8 @@ object YouTube {
     fun fetchInfo(id: String): YtInfo {
         var playability: Exception? = null
         var last: Exception? = null
-        for (client in CLIENTS) {
+        val list = if (cookies != null) AUTH_CLIENTS + CLIENTS else CLIENTS
+        for (client in list) {
             try {
                 return fetchWith(client, id)
             } catch (e: YtException) {

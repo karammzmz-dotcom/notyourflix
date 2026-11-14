@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.webkit.CookieManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -104,6 +105,7 @@ sealed interface Screen {
     data class Edit(val id: String) : Screen
     data class Player(val id: String, val restart: Boolean) : Screen
     data object Upload : Screen
+    data object YtLogin : Screen
 }
 
 fun hashPin(s: String): String =
@@ -150,6 +152,13 @@ class Store(app: Application) {
                 .put("cover", m.coverPath ?: "").put("videos", JSONArray(m.videos)).put("eps", episodesToJson(m.episodes)).put("added", m.addedAt).put("genres", JSONArray(m.genres)).put("rating", m.rating).put("coverw", m.coverWidePath ?: "").put("logo", m.logoPath ?: "").put("author", m.author))
         }
         sp.edit().putString("media", a.toString()).apply()
+    }
+
+    fun loadYtCookies(): String? = sp.getString("yt_cookies", null)
+    fun saveYtCookies(c: String?) {
+        val e = sp.edit()
+        if (c == null) e.remove("yt_cookies") else e.putString("yt_cookies", c)
+        e.apply()
     }
 
     fun loadSubLang(pid: String): String = sp.getString("sublang_$pid", "off") ?: "off"
@@ -216,6 +225,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     var subLang by mutableStateOf("off")
     var inPip by mutableStateOf(false)
     var yt by mutableStateOf(YtState())
+    var ytSignedIn by mutableStateOf(false)
     var progress by mutableStateOf<Map<String, Progress>>(emptyMap())
 
     val current: Profile? get() = profiles.firstOrNull { it.id == currentId }
@@ -231,6 +241,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
         }
         media.addAll(store.loadMedia())
         groups.addAll(store.loadGroups())
+        store.loadYtCookies()?.let { YouTube.cookies = it; ytSignedIn = true }
     }
 
     fun updatePrefs(f: (Prefs) -> Prefs) { prefs = f(prefs); store.savePrefs(prefs) }
@@ -477,6 +488,17 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
     )
 
     /** Imports one video, or a whole playlist (as one series or as separate titles). */
+    fun saveYtCookies(c: String?) {
+        store.saveYtCookies(c)
+        YouTube.cookies = c
+        ytSignedIn = c != null
+    }
+
+    fun signOutYoutube() {
+        runCatching { CookieManager.getInstance().removeAllCookies(null); CookieManager.getInstance().flush() }
+        saveYtCookies(null)
+    }
+
     fun importYoutube(link: String, playlist: Boolean = false, asSeries: Boolean = true) {
         if (yt.busy) return
         val vid = if (playlist) null else YouTube.videoId(link)

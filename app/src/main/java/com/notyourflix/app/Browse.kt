@@ -411,9 +411,20 @@ fun SettingsTab(vm: Vm) {
                     Btn(tr("yt_choose")) { pickFolder.launch(null) }
                     if (p.ytFolder != null) Btn(tr("yt_app_storage")) { vm.updatePrefs { it.copy(ytFolder = null) } }
                 }
+                Spacer(Modifier.height(12.dp))
+                Text(tr("yt_account") + ": " + (if (vm.ytSignedIn) tr("yt_signed_in") else tr("yt_signed_out")), color = Muted)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!vm.ytSignedIn) Btn(tr("yt_signin")) { dlg = ""; vm.screen = Screen.YtLogin }
+                    else Btn(tr("yt_signout")) { vm.signOutYoutube() }
+                }
                 Spacer(Modifier.height(10.dp))
                 if (st.stage.isNotEmpty()) {
                     Text(tr(st.stage) + (if (st.detail.isNotBlank()) "  " + st.detail else ""), color = if (st.error) Red else Muted)
+                }
+                if (st.error && !vm.ytSignedIn && st.detail.contains("sign in", ignoreCase = true)) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(tr("yt_bot_hint"), color = Muted, fontSize = 12.sp)
                 }
                 if (st.busy) {
                     Spacer(Modifier.height(8.dp))
