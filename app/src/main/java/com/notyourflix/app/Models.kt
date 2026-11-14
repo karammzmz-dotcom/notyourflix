@@ -438,7 +438,7 @@ class Vm(private val app: Application) : AndroidViewModel(app) {
                     files.add(vf)
                     yt = YtState(busy = true, stage = "yt_video", progress = 0f)
                     var last = -1
-                    YouTube.downloadFile(info.videoUrl, vf, info.videoSize) { p ->
+                    YouTube.downloadFile(info.videoUrl, vf, info.videoSize, info.ua) { p ->
                         val pct = (p * 100).toInt()
                         if (pct != last) { last = pct; yt = YtState(busy = true, stage = "yt_video", detail = "$pct%", progress = p) }
                     }

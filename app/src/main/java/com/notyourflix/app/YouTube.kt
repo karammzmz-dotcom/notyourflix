@@ -10,16 +10,35 @@ class YtException(msg: String) : Exception(msg)
 class YtCaption(val url: String, val lang: String, val label: String, val auto: Boolean)
 class YtInfo(
     val id: String, val title: String, val author: String, val description: String,
-    val thumbUrl: String?, val videoUrl: String, val videoSize: Long, val captions: List<YtCaption>
+    val thumbUrl: String?, val videoUrl: String, val videoSize: Long, val ua: String, val captions: List<YtCaption>
 )
+
+private class YtClient(val name: String, val id: String, val version: String, val ua: String, val extra: Map<String, Any>)
 
 /**
  * Minimal YouTube importer. It talks to YouTube's unofficial mobile "player" endpoint, which can change or
- * be blocked at any time, so every step reports a clear error instead of crashing.
+ * be blocked at any time. It tries several client identities in turn and reports the real error if all fail.
  */
 object YouTube {
-    private const val UA = "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
-    private const val CLIENT_VERSION = "19.09.37"
+    private const val UA = "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+
+    private val CLIENTS = listOf(
+        YtClient(
+            "ANDROID_VR", "28", "1.60.19",
+            "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+            mapOf("androidSdkVersion" to 32, "deviceMake" to "Oculus", "deviceModel" to "Quest 3", "osName" to "Android", "osVersion" to "12L")
+        ),
+        YtClient(
+            "ANDROID", "3", "20.10.38",
+            "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
+            mapOf("androidSdkVersion" to 30, "osName" to "Android", "osVersion" to "11")
+        ),
+        YtClient(
+            "ANDROID", "3", "19.09.37",
+            "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+            mapOf("androidSdkVersion" to 30)
+        )
+    )
 
     fun videoId(link: String): String? {
         val s = link.trim()
@@ -31,41 +50,65 @@ object YouTube {
         return if (Regex("[A-Za-z0-9_-]{11}").matches(s)) s else null
     }
 
-    private fun open(url: String, range: String? = null): HttpURLConnection {
+    private fun errorText(c: HttpURLConnection, code: Int): String {
+        val body = runCatching { c.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull().orEmpty()
+        val msg = runCatching { JSONObject(body).optJSONObject("error")?.optString("message") }.getOrNull()
+        return "HTTP $code" + (msg?.takeIf { it.isNotBlank() }?.let { " - " + it.take(160) } ?: "")
+    }
+
+    private fun open(url: String, range: String? = null, ua: String = UA): HttpURLConnection {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 30000
-        c.setRequestProperty("User-Agent", UA)
+        c.setRequestProperty("User-Agent", ua)
         if (range != null) c.setRequestProperty("Range", range)
         val code = c.responseCode
-        if (code !in 200..299) throw YtException("HTTP $code")
+        if (code !in 200..299) throw YtException(errorText(c, code))
         return c
     }
 
     fun getText(url: String): String = open(url).inputStream.bufferedReader().use { it.readText() }
 
-    private fun post(url: String, body: String): String {
+    private fun post(url: String, body: String, client: YtClient): String {
         val c = URL(url).openConnection() as HttpURLConnection
         c.requestMethod = "POST"
         c.connectTimeout = 15000
         c.readTimeout = 30000
         c.doOutput = true
         c.setRequestProperty("Content-Type", "application/json")
-        c.setRequestProperty("User-Agent", UA)
-        c.setRequestProperty("X-YouTube-Client-Name", "3")
-        c.setRequestProperty("X-YouTube-Client-Version", CLIENT_VERSION)
+        c.setRequestProperty("User-Agent", client.ua)
+        c.setRequestProperty("X-YouTube-Client-Name", client.id)
+        c.setRequestProperty("X-YouTube-Client-Version", client.version)
+        c.setRequestProperty("Origin", "https://www.youtube.com")
         c.outputStream.use { it.write(body.toByteArray()) }
         val code = c.responseCode
-        if (code !in 200..299) throw IOException("HTTP $code")
+        if (code !in 200..299) throw IOException(errorText(c, code))
         return c.inputStream.bufferedReader().use { it.readText() }
     }
 
     fun fetchInfo(id: String): YtInfo {
-        val client = JSONObject().put("clientName", "ANDROID").put("clientVersion", CLIENT_VERSION)
-            .put("androidSdkVersion", 30).put("hl", "en").put("gl", "US")
+        var playability: Exception? = null
+        var last: Exception? = null
+        for (client in CLIENTS) {
+            try {
+                return fetchWith(client, id)
+            } catch (e: YtException) {
+                if (e.message?.startsWith("HTTP") != true && e.message != "no direct video link available" && playability == null) playability = e
+                last = e
+            } catch (e: Exception) {
+                last = e
+            }
+        }
+        throw YtException((playability ?: last)?.message ?: "failed")
+    }
+
+    private fun fetchWith(client: YtClient, id: String): YtInfo {
+        val cj = JSONObject().put("clientName", client.name).put("clientVersion", client.version)
+            .put("hl", "en").put("gl", "US").put("timeZone", "UTC").put("utcOffsetMinutes", 0)
+        client.extra.forEach { (k, v) -> cj.put(k, v) }
         val body = JSONObject().put("videoId", id).put("contentCheckOk", true).put("racyCheckOk", true)
-            .put("context", JSONObject().put("client", client)).toString()
-        val r = JSONObject(post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body))
+            .put("context", JSONObject().put("client", cj)).toString()
+        val r = JSONObject(post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body, client))
 
         val ps = r.optJSONObject("playabilityStatus")
         val status = ps?.optString("status") ?: ""
@@ -104,7 +147,7 @@ object YouTube {
 
         return YtInfo(
             id, vd.optString("title"), vd.optString("author"), vd.optString("shortDescription"),
-            thumb, chosen.getString("url"), chosen.optString("contentLength").toLongOrNull() ?: 0L, caps
+            thumb, chosen.getString("url"), chosen.optString("contentLength").toLongOrNull() ?: 0L, client.ua, caps
         )
     }
 
@@ -123,7 +166,7 @@ object YouTube {
     fun vttUrl(base: String): String =
         if ("fmt=" in base) base.replace(Regex("fmt=[^&]*"), "fmt=vtt") else "$base&fmt=vtt"
 
-    fun downloadFile(url: String, out: File, expected: Long = 0, onProgress: (Float) -> Unit = {}) {
+    fun downloadFile(url: String, out: File, expected: Long = 0, ua: String = UA, onProgress: (Float) -> Unit = {}) {
         out.outputStream().use { os ->
             val buf = ByteArray(64 * 1024)
             var done = 0L
@@ -143,13 +186,13 @@ object YouTube {
                 var start = 0L
                 while (start < expected) {
                     val end = minOf(start + chunk, expected) - 1
-                    val c = open(url, "bytes=$start-$end")
+                    val c = open(url, "bytes=$start-$end", ua)
                     pump(c)
                     if (c.responseCode == 200) break // server ignored the range and sent everything
                     start = end + 1
                 }
             } else {
-                pump(open(url))
+                pump(open(url, null, ua))
             }
         }
     }
